@@ -126,6 +126,12 @@ def api_stats():
     if filled["n"] > 0:
         win_rate = round(100 * winning["n"] / filled["n"], 1)
 
+    # Determine live mode: check if any trade today is NOT paper
+    live_check = query_one(
+        "SELECT COUNT(*) as n FROM trades WHERE paper=0 AND date(timestamp)=?", (today,)
+    ) or {"n": 0}
+    is_live = live_check["n"] > 0
+
     return jsonify({
         "date": today,
         "spent": round(stats["spent"] or 0, 2),
@@ -137,6 +143,7 @@ def api_stats():
         "total_trades": total_trades["n"],
         "filled_trades": filled["n"],
         "win_rate": win_rate,
+        "is_live": is_live,
     })
 
 
@@ -439,6 +446,16 @@ async function loadStats() {
   document.getElementById('kpi-trades').textContent = d.total_trades;
   document.getElementById('kpi-trades-sub').textContent = d.filled_trades + ' filled';
   document.getElementById('kpi-spent').textContent = '$' + d.spent.toFixed(2);
+  const badge = document.getElementById('mode-badge');
+  if (d.is_live) {
+    badge.textContent = 'LIVE';
+    badge.style.background = 'rgba(56,139,253,.2)';
+    badge.style.color = '#388bfd';
+  } else {
+    badge.textContent = 'PAPER';
+    badge.style.background = 'rgba(210,153,34,.2)';
+    badge.style.color = '#e3b341';
+  }
 }
 
 async function loadChart() {
@@ -468,7 +485,7 @@ async function loadTrades() {
   const rows = await fetch('/api/trades').then(r => r.json());
   const tbody = document.getElementById('trades-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px">No trades yet — bot is running in paper mode</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">No trades yet — waiting for next scan...</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
