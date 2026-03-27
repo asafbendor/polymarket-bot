@@ -13,6 +13,8 @@ DAILY_BUDGET = 10.0
 MAX_TRADE_SIZE = 2.0
 MAX_OPEN_POSITIONS = 3
 MIN_HOURS_TO_RESOLUTION = 6
+MAX_HOURS_TO_RESOLUTION = 12   # only trade markets resolving within 12h
+TRADEABLE_CATEGORIES = {"sports", "crypto", "weather"}  # data-driven only
 STOP_LOSS_THRESHOLD = -8.0
 
 
@@ -146,6 +148,12 @@ class RiskManager:
 
         if opp.hours_left < MIN_HOURS_TO_RESOLUTION:
             return False, f"Too close to resolution: {opp.hours_left:.1f}h left"
+
+        if opp.hours_left > MAX_HOURS_TO_RESOLUTION:
+            return False, f"Resolves too far: {opp.hours_left:.0f}h > {MAX_HOURS_TO_RESOLUTION}h max"
+
+        if opp.category not in TRADEABLE_CATEGORIES:
+            return False, f"Category '{opp.category}' not data-driven — skipping"
 
         open_pos = self.get_open_positions()
         if open_pos >= MAX_OPEN_POSITIONS:
