@@ -9,7 +9,7 @@ import db_adapter
 
 logger = logging.getLogger(__name__)
 
-DAILY_BUDGET = 10.0
+DAILY_BUDGET = 5.0
 MAX_TRADE_SIZE = 1.0
 MAX_OPEN_POSITIONS = 5
 MIN_HOURS_TO_RESOLUTION = 6

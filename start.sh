@@ -1,3 +1,3 @@
 #!/bin/bash
-python main.py &
+python main.py --live &
 python dashboard_web.py

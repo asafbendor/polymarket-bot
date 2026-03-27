@@ -12,7 +12,7 @@ from flask import Flask, jsonify, render_template_string
 
 app = Flask(__name__)
 
-DAILY_BUDGET = 10.0
+DAILY_BUDGET = 5.0
 
 
 def init_db():
