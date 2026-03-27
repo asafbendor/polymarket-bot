@@ -1,0 +1,228 @@
+"""
+Executor - places limit orders on Polymarket CLOB
+Uses py-clob-client with EIP-712 signatures
+"""
+
+import asyncio
+import logging
+import os
+from typing import Optional
+from datetime import datetime, timezone
+from edge_calculator import TradeOpportunity
+
+logger = logging.getLogger(__name__)
+
+ORDER_CHECK_INTERVAL = 300   # 5 minutes
+LIMIT_PRICE_DISCOUNT = 0.98  # bid 2% below fair value to get better fill
+
+
+class Executor:
+    """
+    Handles both paper trading (simulation) and live trading via py-clob-client.
+    In paper mode, no real orders are placed — everything is simulated and logged.
+    """
+
+    def __init__(self, paper: bool = True):
+        self.paper = paper
+        self._client = None
+
+        if not paper:
+            self._init_live_client()
+
+    # ------------------------------------------------------------------
+    # Client init (live only)
+    # ------------------------------------------------------------------
+    def _init_live_client(self):
+        try:
+            from py_clob_client.client import ClobClient
+            from py_clob_client.clob_types import ApiCreds
+            from py_clob_client.constants import POLYGON
+
+            private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
+            proxy_address = os.getenv("POLYMARKET_PROXY_ADDRESS")
+
+            if not private_key:
+                raise ValueError("POLYMARKET_PRIVATE_KEY not set in .env")
+            if not proxy_address:
+                raise ValueError("POLYMARKET_PROXY_ADDRESS not set in .env")
+
+            # signature_type=2 = EIP-712 (Gnosis Safe / proxy wallet)
+            self._client = ClobClient(
+                host="https://clob.polymarket.com",
+                key=private_key,
+                chain_id=POLYGON,
+                signature_type=2,
+                funder=proxy_address,
+            )
+
+            # Create API credentials if needed
+            try:
+                self._client.set_api_creds(self._client.create_or_derive_api_creds())
+                logger.info("CLOB client initialized (live mode)")
+            except Exception as e:
+                logger.warning(f"API creds warning (non-fatal): {e}")
+
+        except ImportError:
+            logger.error(
+                "py-clob-client not installed. Run: pip install py-clob-client"
+            )
+            raise
+        except Exception as e:
+            logger.error(f"Failed to initialize CLOB client: {e}")
+            raise
+
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+    async def execute(self, opp: TradeOpportunity) -> dict:
+        """
+        Place an order for the opportunity.
+        Returns dict with order_id, limit_price, status, message.
+        """
+        # Determine token and limit price
+        if opp.direction == "YES":
+            token_id = opp.yes_token_id
+            limit_price = round(opp.fair_value * LIMIT_PRICE_DISCOUNT, 4)
+        else:
+            token_id = opp.no_token_id
+            # For NO bets, fair value of NO = 1 - fair_value(YES)
+            no_fair = 1.0 - opp.fair_value
+            limit_price = round(no_fair * LIMIT_PRICE_DISCOUNT, 4)
+
+        # Ensure limit price is valid
+        limit_price = max(0.01, min(0.99, limit_price))
+
+        if self.paper:
+            return await self._simulate_order(opp, token_id, limit_price)
+        else:
+            return await self._place_live_order(opp, token_id, limit_price)
+
+    # ------------------------------------------------------------------
+    # Paper trading simulation
+    # ------------------------------------------------------------------
+    async def _simulate_order(self, opp: TradeOpportunity, token_id: Optional[str], limit_price: float) -> dict:
+        fake_order_id = f"PAPER-{opp.condition_id[:8]}-{int(datetime.now().timestamp())}"
+
+        logger.info(
+            f"[PAPER] Would place: {opp.direction} ${opp.position_size:.2f} "
+            f"on '{opp.question[:50]}' @ {limit_price:.3f} "
+            f"(fair={opp.fair_value:.3f}, edge={opp.edge:+.1%})"
+        )
+
+        return {
+            "order_id": fake_order_id,
+            "limit_price": limit_price,
+            "token_id": token_id,
+            "status": "paper_placed",
+            "message": f"Paper order simulated: {opp.direction} ${opp.position_size:.2f} @ {limit_price:.3f}",
+            "paper": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Live order placement
+    # ------------------------------------------------------------------
+    async def _place_live_order(self, opp: TradeOpportunity, token_id: Optional[str], limit_price: float) -> dict:
+        if not self._client:
+            return {"order_id": "", "status": "error", "message": "Client not initialized"}
+
+        if not token_id:
+            return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
+
+        try:
+            from py_clob_client.clob_types import OrderArgs, OrderType
+
+            # Calculate number of shares (shares = USD / price)
+            shares = round(opp.position_size / limit_price, 2)
+
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=limit_price,
+                size=shares,
+                side="BUY",
+            )
+
+            # Run sync client call in thread pool to not block event loop
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None,
+                lambda: self._client.create_and_post_order(order_args)
+            )
+
+            order_id = resp.get("orderID", resp.get("order_id", ""))
+
+            logger.info(
+                f"[LIVE] Order placed: {opp.direction} {shares:.2f} shares "
+                f"of '{opp.question[:50]}' @ {limit_price:.3f} | ID={order_id}"
+            )
+
+            return {
+                "order_id": order_id,
+                "limit_price": limit_price,
+                "token_id": token_id,
+                "status": "pending",
+                "message": f"Order placed: {shares:.2f} shares @ {limit_price:.3f}",
+                "paper": False,
+            }
+
+        except Exception as e:
+            logger.error(f"Order placement failed: {e}")
+            return {
+                "order_id": "",
+                "status": "error",
+                "message": str(e),
+                "paper": False,
+            }
+
+    # ------------------------------------------------------------------
+    # Order status check (called after ORDER_CHECK_INTERVAL)
+    # ------------------------------------------------------------------
+    async def check_order_status(self, order_id: str) -> dict:
+        """Returns {'status': 'filled'|'open'|'cancelled', 'fill_price': float}"""
+        if self.paper or order_id.startswith("PAPER-"):
+            # Simulate 40% fill rate for paper orders
+            import random
+            filled = random.random() < 0.40
+            return {
+                "status": "filled" if filled else "cancelled",
+                "fill_price": 0.0,
+                "paper": True,
+            }
+
+        if not self._client:
+            return {"status": "unknown", "fill_price": 0.0}
+
+        try:
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None,
+                lambda: self._client.get_order(order_id)
+            )
+            status = resp.get("status", "unknown").lower()
+            fill_price = float(resp.get("avg_price", 0) or 0)
+            return {"status": status, "fill_price": fill_price, "paper": False}
+        except Exception as e:
+            logger.error(f"Order status check failed {order_id}: {e}")
+            return {"status": "unknown", "fill_price": 0.0}
+
+    # ------------------------------------------------------------------
+    # Cancel order
+    # ------------------------------------------------------------------
+    async def cancel_order(self, order_id: str) -> bool:
+        if self.paper or order_id.startswith("PAPER-"):
+            logger.info(f"[PAPER] Cancelled order {order_id}")
+            return True
+
+        if not self._client:
+            return False
+
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self._client.cancel(order_id=order_id)
+            )
+            logger.info(f"Cancelled order {order_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Cancel failed {order_id}: {e}")
+            return False
