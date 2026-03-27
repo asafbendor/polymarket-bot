@@ -422,7 +422,7 @@ class FairValueEngine:
                             import json as _json
                             data = _json.loads(text)
                             confidence = float(data.get("confidence_score", 1.0))
-                            if confidence < 0.3:
+                            if confidence < 0.5:
                                 logger.debug(f"Claude low confidence ({confidence:.2f}), skipping")
                                 return None
                             val = float(data["fair_value_percent"])

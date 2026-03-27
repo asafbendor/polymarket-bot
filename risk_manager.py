@@ -14,7 +14,7 @@ MAX_TRADE_SIZE = 2.0
 MAX_OPEN_POSITIONS = 3
 MIN_HOURS_TO_RESOLUTION = 6
 MAX_HOURS_TO_RESOLUTION = 168  # only trade markets resolving within 7 days
-DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather"}  # have real APIs
+DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather", "political"}  # have real APIs or Claude
 STOP_LOSS_THRESHOLD = -8.0
 
 
@@ -169,8 +169,9 @@ class RiskManager:
         if open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Max open positions reached: {open_pos}/{MAX_OPEN_POSITIONS}"
 
-        if opp.position_size > MAX_TRADE_SIZE:
-            return False, f"Position size ${opp.position_size:.2f} > max ${MAX_TRADE_SIZE:.2f}"
+        political_cap = 1.0 if opp.category == "political" else MAX_TRADE_SIZE
+        if opp.position_size > political_cap:
+            return False, f"Position size ${opp.position_size:.2f} > max ${political_cap:.2f} for {opp.category}"
 
         if abs(opp.edge) < 0.08:
             return False, f"Edge {opp.edge:.1%} below minimum 8%"
