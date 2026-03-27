@@ -13,7 +13,7 @@ DAILY_BUDGET = 10.0
 MAX_TRADE_SIZE = 2.0
 MAX_OPEN_POSITIONS = 3
 MIN_HOURS_TO_RESOLUTION = 6
-MAX_HOURS_TO_RESOLUTION = 720  # only trade markets resolving within 30 days
+MAX_HOURS_TO_RESOLUTION = 168  # only trade markets resolving within 7 days
 DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather"}  # have real APIs
 STOP_LOSS_THRESHOLD = -8.0
 
@@ -161,9 +161,9 @@ class RiskManager:
         if opp.hours_left > MAX_HOURS_TO_RESOLUTION:
             return False, f"Resolves too far: {opp.hours_left:.0f}h > {MAX_HOURS_TO_RESOLUTION}h max"
 
-        # Block only if non-data-driven category AND fair_value is near 50% (Claude just guessed)
-        if opp.category not in DATA_DRIVEN_CATEGORIES and abs(opp.fair_value - 0.5) < 0.15:
-            return False, f"Category '{opp.category}' with no conviction (fair={opp.fair_value:.0%}) — skipping"
+        # Only trade data-driven categories (sports, crypto, weather)
+        if opp.category not in DATA_DRIVEN_CATEGORIES:
+            return False, f"Category '{opp.category}' not data-driven — skipping"
 
         open_pos = self.get_open_positions()
         if open_pos >= MAX_OPEN_POSITIONS:
