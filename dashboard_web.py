@@ -317,6 +317,23 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 640px) {
+    main { padding: 12px; }
+    #trades-table thead { display: none; }
+    #trades-table tr { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 10px 12px; }
+    #trades-table td { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border: none; font-size: 13px; }
+    #trades-table td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; margin-right: 8px; }
+    #trades-table td[data-label="Market"] { display: block; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    #trades-table td[data-label="Market"]::before { display: none; }
+    #trades-table td[data-label="Entry"],
+    #trades-table td[data-label="Fair"],
+    #trades-table td[data-label="Size"] { display: none; }
+    .truncate { max-width: 100%; font-size: 13px; font-weight: 500; }
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .grid-2 { grid-template-columns: 1fr; }
+    header h1 { font-size: 15px; }
+  }
 </style>
 </head>
 <body>
@@ -466,16 +483,17 @@ async function loadTrades() {
       ? `<div class="truncate"><a href="${r.polymarket_url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none" title="${q}">${q}</a></div>`
       : `<div class="truncate" title="${q}">${q}</div>`;
     return `<tr>
-      <td style="color:var(--muted);white-space:nowrap">${r.time_str||''}</td>
-      <td>${marketCell}</td>
-      <td style="color:var(--muted);white-space:nowrap;font-size:12px">${r.end_date_str||'-'}</td>
-      <td>${dirBadge}</td>
-      <td>${modeBadge}</td>
-      <td>${entry}</td><td>${fair}</td>
-      <td>${fmtPct(r.edge_pct)}</td>
-      <td>$${(r.position_size||0).toFixed(2)}</td>
-      <td class="status-${r.status}">${r.status}</td>
-      <td class="${colorClass(pnl)}">${pnlStr}</td>
+      <td data-label="Time" style="color:var(--muted);white-space:nowrap">${r.time_str||''}</td>
+      <td data-label="Market">${marketCell}</td>
+      <td data-label="Ends" style="color:var(--muted);white-space:nowrap;font-size:12px">${r.end_date_str||'-'}</td>
+      <td data-label="Dir">${dirBadge}</td>
+      <td data-label="Mode">${modeBadge}</td>
+      <td data-label="Entry">${entry}</td>
+      <td data-label="Fair">${fair}</td>
+      <td data-label="Edge">${fmtPct(r.edge_pct)}</td>
+      <td data-label="Size">$${(r.position_size||0).toFixed(2)}</td>
+      <td data-label="Status" class="status-${r.status}">${r.status}</td>
+      <td data-label="P&L" class="${colorClass(pnl)}">${pnlStr}</td>
     </tr>`;
   }).join('');
 }
