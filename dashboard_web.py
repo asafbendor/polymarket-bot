@@ -165,12 +165,17 @@ def api_trades():
             r["polymarket_url"] = f"https://polymarket.com/markets?conditionId={condition_id}"
         else:
             r["polymarket_url"] = ""
-        # End date formatting
+        # Hours left until resolution
         end_raw = r.get("end_date") or ""
         if end_raw:
             try:
                 ed = datetime.fromisoformat(end_raw.replace("Z", "+00:00"))
-                r["end_date_str"] = ed.strftime("%b %d %H:%M")
+                now = datetime.now(timezone.utc)
+                hours_left = (ed - now).total_seconds() / 3600
+                if hours_left > 0:
+                    r["end_date_str"] = f"{hours_left:.0f}h left"
+                else:
+                    r["end_date_str"] = "resolved"
             except Exception:
                 r["end_date_str"] = end_raw[:10]
         else:
@@ -494,6 +499,17 @@ setInterval(tick, 1000);
 </script>
 </body>
 </html>"""
+
+
+@app.route("/admin/reset-trades", methods=["POST"])
+def reset_trades():
+    conn = db_adapter.connect()
+    c = conn.cursor()
+    c.execute(db_adapter.adapt("DELETE FROM trades"))
+    c.execute(db_adapter.adapt("UPDATE daily_stats SET spent=0, realized_pnl=0, open_positions=0"))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/")
