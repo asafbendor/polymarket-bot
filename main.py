@@ -100,6 +100,13 @@ async def run_scan_cycle(
     markets = await scanner.scan_all_markets()
     total_markets = len(markets)
 
+    # Early exit: no point calling Claude if budget/positions are exhausted
+    budget_check = risk_mgr.get_budget_remaining()
+    positions_check = risk_mgr.get_open_positions()
+    if budget_check < 0.50 or positions_check >= 3:
+        print(f"[{now_str}] Skipping analysis — budget=${budget_check:.2f}, positions={positions_check}/3")
+        return
+
     # Phase 2 (Improvement 3): Estimate fair value for ALL markets concurrently,
     # then sort by edge so we always trade the best opportunities first.
     #
