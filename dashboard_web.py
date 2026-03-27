@@ -15,6 +15,46 @@ app = Flask(__name__)
 DAILY_BUDGET = 10.0
 
 
+def init_db():
+    """Create tables if they don't exist (runs on startup)."""
+    conn = db_adapter.connect()
+    c = conn.cursor()
+    c.execute(db_adapter.adapt("""
+        CREATE TABLE IF NOT EXISTS trades (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp       TEXT NOT NULL,
+            condition_id    TEXT NOT NULL,
+            question        TEXT,
+            direction       TEXT,
+            market_price    REAL,
+            fair_value      REAL,
+            edge            REAL,
+            kelly_fraction  REAL,
+            position_size   REAL,
+            limit_price     REAL,
+            order_id        TEXT,
+            status          TEXT DEFAULT 'pending',
+            fill_price      REAL,
+            pnl             REAL DEFAULT 0,
+            paper           INTEGER DEFAULT 1,
+            reason          TEXT
+        )
+    """))
+    c.execute(db_adapter.adapt("""
+        CREATE TABLE IF NOT EXISTS daily_stats (
+            date            TEXT PRIMARY KEY,
+            spent           REAL DEFAULT 0,
+            realized_pnl    REAL DEFAULT 0,
+            open_positions  INTEGER DEFAULT 0
+        )
+    """))
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
 # ------------------------------------------------------------------
 # DB helpers
 # ------------------------------------------------------------------
