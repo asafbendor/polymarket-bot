@@ -4,32 +4,27 @@ Run: python dashboard_web.py
 Then open: http://localhost:5000
 """
 
-import sqlite3
 import os
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+import db_adapter
 from flask import Flask, jsonify, render_template_string
 
 app = Flask(__name__)
 
-DB_PATH = os.getenv("DB_PATH", "trades.db")
 DAILY_BUDGET = 10.0
 
 
 # ------------------------------------------------------------------
 # DB helpers
 # ------------------------------------------------------------------
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def query(sql, params=()):
-    conn = get_db()
+    sql = db_adapter.adapt(sql)
+    conn = db_adapter.connect()
     try:
-        rows = conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        return db_adapter.fetchrows(cur)
     finally:
         conn.close()
 
@@ -99,21 +94,19 @@ def api_trades():
         r["fair_value_pct"] = round((r["fair_value"] or 0) * 100, 1)
         r["pnl"] = round(r["pnl"] or 0, 3)
         r["is_paper"] = bool(r["paper"])
-        # short timestamp
         ts = r.get("timestamp", "")
         if ts:
             try:
-                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
                 r["time_str"] = dt.strftime("%m/%d %H:%M")
             except Exception:
-                r["time_str"] = ts[:16]
+                r["time_str"] = str(ts)[:16]
 
     return jsonify(rows)
 
 
 @app.route("/api/pnl")
 def api_pnl():
-    """Cumulative P&L per day for the chart."""
     rows = query("""
         SELECT date, realized_pnl, spent
         FROM daily_stats
@@ -135,7 +128,6 @@ def api_pnl():
 
 @app.route("/api/markets")
 def api_markets():
-    """Recent near-miss and traded opportunities."""
     rows = query("""
         SELECT question, direction, market_price, fair_value, edge,
                position_size, status, timestamp
@@ -152,7 +144,6 @@ def api_markets():
 
 @app.route("/api/log")
 def api_log():
-    """Last 50 lines of bot.log."""
     log_path = os.getenv("LOG_PATH", "bot.log")
     lines = []
     try:
@@ -196,7 +187,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .refresh-info { color: var(--muted); font-size: 12px; }
   main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 
-  /* KPI row */
   .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
   .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
   .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
@@ -206,16 +196,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .neg { color: var(--red); }
   .neutral { color: var(--text); }
 
-  /* Grid */
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   @media(max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
 
-  /* Cards */
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .card-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: space-between; }
   .card-body { padding: 0; }
 
-  /* Table */
   table { width: 100%; border-collapse: collapse; }
   th { background: #0d1117; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
   td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -231,25 +218,17 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .status-paper     { color: var(--muted); }
   .status-cancelled { color: var(--red); }
 
-  /* Progress bar */
   .progress-wrap { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 8px; }
   .progress-bar  { height: 100%; border-radius: 4px; transition: width .4s; }
 
-  /* Log */
   .log-box { background: #0d1117; font-family: monospace; font-size: 12px; padding: 12px 16px; max-height: 280px; overflow-y: auto; color: var(--muted); }
   .log-box .line { padding: 1px 0; }
-  .log-line-INFO    { color: var(--muted); }
   .log-line-WARNING { color: var(--yellow); }
   .log-line-ERROR   { color: var(--red); }
 
-  /* Chart */
   .chart-wrap { padding: 16px; height: 260px; }
-
-  .full-width { grid-column: 1 / -1; }
   .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 20px 0 10px; }
-
   .truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
   .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -257,7 +236,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <body>
 
 <header>
-  <h1>📈 Polymarket Bot</h1>
+  <h1>Polymarket Bot</h1>
   <div style="display:flex;align-items:center;gap:12px">
     <span class="badge" id="mode-badge">PAPER</span>
     <span class="refresh-info"><span class="spinner"></span><span id="countdown">30</span>s to refresh</span>
@@ -265,13 +244,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 </header>
 
 <main>
-
-  <!-- KPI row -->
-  <div class="kpi-row" id="kpi-row">
+  <div class="kpi-row">
     <div class="kpi">
       <div class="label">Daily P&L</div>
       <div class="value neutral" id="kpi-pnl">-</div>
-      <div class="sub" id="kpi-pnl-sub">loading…</div>
+      <div class="sub">realized today</div>
     </div>
     <div class="kpi">
       <div class="label">Budget Remaining</div>
@@ -302,7 +279,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Charts + Log -->
   <div class="grid-2">
     <div class="card">
       <div class="card-header">Cumulative P&L</div>
@@ -310,102 +286,71 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
     <div class="card">
       <div class="card-header">Live Bot Log <span style="color:var(--muted);font-weight:400;font-size:11px">last 50 lines</span></div>
-      <div class="card-body"><div class="log-box" id="log-box">Loading…</div></div>
+      <div class="card-body"><div class="log-box" id="log-box">Loading...</div></div>
     </div>
   </div>
 
-  <!-- Trades table -->
   <div class="section-title">All Trades</div>
   <div class="card" style="margin-bottom:32px">
     <div class="card-body">
       <table id="trades-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Market</th>
-            <th>Dir</th>
-            <th>Mode</th>
-            <th>Entry</th>
-            <th>Fair</th>
-            <th>Edge</th>
-            <th>Size</th>
-            <th>Status</th>
-            <th>P&L</th>
+            <th>Time</th><th>Market</th><th>Dir</th><th>Mode</th>
+            <th>Entry</th><th>Fair</th><th>Edge</th><th>Size</th><th>Status</th><th>P&L</th>
           </tr>
         </thead>
         <tbody id="trades-body">
-          <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>
+          <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px">Loading...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
-
 </main>
 
 <script>
 let pnlChart = null;
 
-// -- Helpers --
 function fmt$(v) { return (v >= 0 ? '+' : '') + '$' + Math.abs(v).toFixed(2); }
 function fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; }
 function colorClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neutral'; }
 
-// -- Stats --
 async function loadStats() {
   const d = await fetch('/api/stats').then(r => r.json());
-
   const pnl = d.realized_pnl;
   document.getElementById('kpi-pnl').textContent = fmt$(pnl);
   document.getElementById('kpi-pnl').className = 'value ' + colorClass(pnl);
-  document.getElementById('kpi-pnl-sub').textContent = 'realized today';
-
   const remaining = d.budget_remaining;
   document.getElementById('kpi-budget').textContent = '$' + remaining.toFixed(2);
   document.getElementById('kpi-budget').className = 'value ' + (remaining < 2 ? 'neg' : remaining < 5 ? 'neutral' : 'pos');
   document.getElementById('kpi-budget-total').textContent = d.daily_budget.toFixed(2);
   document.getElementById('budget-bar').style.width = Math.max(0, 100 * remaining / d.daily_budget) + '%';
-
   const wr = d.win_rate;
   document.getElementById('kpi-winrate').textContent = wr.toFixed(1) + '%';
   document.getElementById('kpi-winrate').className = 'value ' + (wr >= 55 ? 'pos' : wr >= 45 ? 'neutral' : 'neg');
   document.getElementById('kpi-winrate-sub').textContent = d.filled_trades + ' filled trades';
-
   const op = d.open_positions;
   document.getElementById('kpi-open').textContent = op + '/3';
-  document.getElementById('kpi-open').className = 'value ' + (op >= 3 ? 'neg' : op > 0 ? 'neutral' : 'muted');
   document.getElementById('positions-bar').style.width = (100 * op / 3) + '%';
-
   document.getElementById('kpi-trades').textContent = d.total_trades;
   document.getElementById('kpi-trades-sub').textContent = d.filled_trades + ' filled';
   document.getElementById('kpi-spent').textContent = '$' + d.spent.toFixed(2);
 }
 
-// -- P&L Chart --
 async function loadChart() {
   const rows = await fetch('/api/pnl').then(r => r.json());
-  const labels = rows.map(r => r.date.slice(5));  // MM-DD
+  const labels = rows.map(r => r.date.slice(5));
   const data   = rows.map(r => r.cumulative_pnl);
-
   if (pnlChart) { pnlChart.destroy(); }
-
   const ctx = document.getElementById('pnl-chart').getContext('2d');
   pnlChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
-      datasets: [{
-        label: 'Cumulative P&L ($)',
-        data,
-        borderColor: '#388bfd',
-        backgroundColor: 'rgba(56,139,253,.1)',
-        tension: 0.3,
-        fill: true,
-        pointRadius: 3,
-      }]
+      datasets: [{ label: 'Cumulative P&L ($)', data, borderColor: '#388bfd', backgroundColor: 'rgba(56,139,253,.1)', tension: 0.3, fill: true, pointRadius: 3 }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#8b949e', font: { size: 11 } }, grid: { color: '#21262d' } },
@@ -415,48 +360,39 @@ async function loadChart() {
   });
 }
 
-// -- Trades table --
 async function loadTrades() {
   const rows = await fetch('/api/trades').then(r => r.json());
   const tbody = document.getElementById('trades-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px">No trades yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px">No trades yet — bot is running in paper mode</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
     const pnl = r.pnl;
     const pnlStr = pnl !== 0 ? fmt$(pnl) : '-';
-    const pnlClass = colorClass(pnl);
-    const dirBadge = r.direction === 'YES'
-      ? '<span class="badge-yes">YES</span>'
-      : '<span class="badge-no">NO</span>';
-    const modeBadge = r.is_paper
-      ? '<span class="badge-paper">paper</span>'
-      : '<span class="badge-live">live</span>';
-    const statusClass = 'status-' + r.status;
-    const entry = r.limit_price ? (r.limit_price * 100).toFixed(1) + '¢' : '-';
-    const fair  = r.fair_value  ? (r.fair_value  * 100).toFixed(1) + '¢' : '-';
+    const dirBadge = r.direction === 'YES' ? '<span class="badge-yes">YES</span>' : '<span class="badge-no">NO</span>';
+    const modeBadge = r.is_paper ? '<span class="badge-paper">paper</span>' : '<span class="badge-live">live</span>';
+    const entry = r.limit_price ? (r.limit_price * 100).toFixed(1) + 'c' : '-';
+    const fair  = r.fair_value  ? (r.fair_value  * 100).toFixed(1) + 'c' : '-';
     return `<tr>
       <td style="color:var(--muted);white-space:nowrap">${r.time_str||''}</td>
       <td><div class="truncate" title="${r.question}">${r.question}</div></td>
       <td>${dirBadge}</td>
       <td>${modeBadge}</td>
-      <td>${entry}</td>
-      <td>${fair}</td>
+      <td>${entry}</td><td>${fair}</td>
       <td>${fmtPct(r.edge_pct)}</td>
       <td>$${(r.position_size||0).toFixed(2)}</td>
-      <td class="${statusClass}">${r.status}</td>
-      <td class="${pnlClass}">${pnlStr}</td>
+      <td class="status-${r.status}">${r.status}</td>
+      <td class="${colorClass(pnl)}">${pnlStr}</td>
     </tr>`;
   }).join('');
 }
 
-// -- Log --
 async function loadLog() {
   const d = await fetch('/api/log').then(r => r.json());
   const box = document.getElementById('log-box');
   box.innerHTML = d.lines.map(line => {
-    let cls = 'log-line-INFO';
+    let cls = '';
     if (line.includes('WARNING')) cls = 'log-line-WARNING';
     if (line.includes('ERROR'))   cls = 'log-line-ERROR';
     return `<div class="line ${cls}">${line}</div>`;
@@ -464,7 +400,6 @@ async function loadLog() {
   box.scrollTop = box.scrollHeight;
 }
 
-// -- Countdown & auto-refresh --
 let countdown = 30;
 function tick() {
   countdown--;
@@ -476,7 +411,6 @@ async function loadAll() {
   await Promise.all([loadStats(), loadChart(), loadTrades(), loadLog()]);
 }
 
-// -- Init --
 loadAll();
 setInterval(tick, 1000);
 </script>
@@ -489,11 +423,9 @@ def index():
     return render_template_string(DASHBOARD_HTML)
 
 
-# ------------------------------------------------------------------
-# Entry point
-# ------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "0") == "1"
-    print(f"\nDashboard running at http://localhost:{port}\n")
+    print(f"\nDB backend: {'PostgreSQL' if db_adapter.pg() else 'SQLite'}")
+    print(f"Dashboard running at http://localhost:{port}\n")
     app.run(host="0.0.0.0", port=port, debug=debug)
