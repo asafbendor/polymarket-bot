@@ -14,25 +14,22 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Improvement 2: calibration system prompt with few-shot examples
-_CLAUDE_SYSTEM = """You are a probability calibration expert for prediction markets.
-Estimate the TRUE probability of events — not what sounds plausible, but what the data supports.
+_CLAUDE_SYSTEM = """You are a Senior Quantitative Analyst specializing in prediction markets. Your goal is to provide a calibrated probability for a specific event.
 
-Calibration rules:
-- Multi-team tournaments (16+ teams): winner probability ≈ 1/N adjusted for relative skill. A weak team winning a 32-team World Cup = 1-3%, not 20%.
-- Geopolitical shocks in <30 days (regime collapse, invasion, leader removal): typically 1-5% unless crisis is acute.
-- Crypto extreme targets: use lognormal math. BTC reaching 2x current price in 30 days ≈ 1-3%.
-- Elections: use polling data. Frontrunner at 60% in polls → ~65-75% probability.
-- Long-shot candidates in a field of 10+: each at 2-8%, not 20%.
-- The market price is one data point but can be systematically wrong — trust data over market.
+Instructions:
+1. Base Rate Analysis: Identify the historical frequency of similar events.
+2. Specific Evidence: Analyze the provided news/data points.
+3. Inside vs. Outside View: Compare current specific factors against the general trend.
+4. Counter-Argument: Explicitly consider 3 reasons why the event might NOT happen.
+5. Calibration: Adjust your estimate based on the logic above.
 
-Calibration examples:
-Q: "Will [weak team] win the FIFA World Cup?" (32 teams, team has no recent wins) → 2
-Q: "Will BTC reach $200k by end of month?" (currently $85k) → 2
-Q: "Will incumbent president win reelection?" (polling +5%) → 62
-Q: "Will [country] regime fall by March 31?" (no acute crisis) → 3
-Q: "Will Fed raise rates this meeting?" (market pricing 8% chance) → 7
-Q: "Will [minor candidate] win 2028 nomination?" (polling at 2%) → 4"""
+Calibration anchors:
+- Multi-team tournaments (16+ teams): winner probability ≈ 1/N adjusted for skill. Weak team in 32-team World Cup = 1-3%.
+- Crypto extreme targets: BTC reaching 2x current price in 30 days ≈ 1-3%.
+- The market price is one data point but can be wrong — trust data over market.
+
+Output Format: Return ONLY a JSON object, no other text:
+{"reasoning": "short_summary", "fair_value_percent": float, "confidence_score": 0.0-1.0}"""
 
 
 class FairValueEngine:
@@ -387,13 +384,12 @@ class FairValueEngine:
             f"{headline_block}"
             f"Polymarket question: \"{question}\"\n"
             f"Current market price (YES): {current_price:.0%}\n\n"
-            f"Based on available information, what is the true probability of YES?\n"
-            f"Answer ONLY with a single integer 0-100. No explanation."
+            f"Estimate the true probability of YES. Return ONLY the JSON object."
         )
 
         payload = {
             "model": "claude-sonnet-4-6",
-            "max_tokens": 10,
+            "max_tokens": 300,
             "system": _CLAUDE_SYSTEM,
             "messages": [{"role": "user", "content": prompt}],
         }
@@ -421,10 +417,22 @@ class FairValueEngine:
                             return None
                         resp = await r.json(content_type=None)
                         text = resp["content"][0]["text"].strip()
-                        num_match = re.search(r"\d+", text)
-                        if num_match:
-                            val = int(num_match.group())
+                        # Try JSON parse first
+                        try:
+                            import json as _json
+                            data = _json.loads(text)
+                            confidence = float(data.get("confidence_score", 1.0))
+                            if confidence < 0.3:
+                                logger.debug(f"Claude low confidence ({confidence:.2f}), skipping")
+                                return None
+                            val = float(data["fair_value_percent"])
                             return round(max(1, min(99, val)) / 100.0, 3)
+                        except Exception:
+                            # Fallback: extract any number from text
+                            num_match = re.search(r"\d+\.?\d*", text)
+                            if num_match:
+                                val = float(num_match.group())
+                                return round(max(1, min(99, val)) / 100.0, 3)
                         return None
                 except Exception as e:
                     if attempt < 2:
