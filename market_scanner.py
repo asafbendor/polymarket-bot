@@ -159,8 +159,11 @@ class MarketScanner:
         if any(k in combined for k in ["weather", "temperature", "rain", "snow", "hurricane",
                                          "storm", "celsius", "fahrenheit"]):
             return "weather"
+        if any(k in combined for k in ["gdp", "inflation", "fed", "interest rate", "economic",
+                                         "unemployment", "cpi", "recession", "tariff", "trade war"]):
+            return "economic"
         if any(k in combined for k in ["election", "president", "senate", "congress", "vote",
-                                         "poll", "gdp", "inflation", "fed", "rate", "economic"]):
+                                         "poll", "minister", "parliament", "political"]):
             return "political"
         return "other"
 
@@ -233,7 +236,8 @@ class MarketScanner:
                     tags = [t.get("label", "") for t in tags]
 
                 condition_id = raw.get("conditionId") or raw.get("condition_id") or raw.get("id") or ""
-                slug = (raw.get("eventSlug") or raw.get("slug") or raw.get("market_slug") or raw.get("marketSlug") or "")
+                slug = (raw.get("slug") or raw.get("eventSlug") or raw.get("market_slug") or raw.get("marketSlug") or "")
+                market_url = raw.get("marketUrl") or raw.get("url") or (f"https://polymarket.com/event/{slug}" if slug else "")
 
                 market = {
                     "condition_id": condition_id,
@@ -241,6 +245,7 @@ class MarketScanner:
                     "category": self._classify_category(question, tags),
                     "end_date": end_raw,
                     "slug": slug,
+                    "market_url": market_url,
                     "hours_left": round(hours_left, 1),
                     "yes_price": yes_price,
                     "no_price": no_price,

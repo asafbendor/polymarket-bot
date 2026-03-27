@@ -57,7 +57,8 @@ def init_db():
         )
     """))
     # Migration: add columns if missing
-    for col, definition in [("end_date", "TEXT DEFAULT ''"), ("slug", "TEXT DEFAULT ''")]:
+    for col, definition in [("end_date", "TEXT DEFAULT ''"), ("slug", "TEXT DEFAULT ''"),
+                             ("category", "TEXT DEFAULT ''"), ("market_url", "TEXT DEFAULT ''")]:
         try:
             c.execute(db_adapter.adapt(f"ALTER TABLE trades ADD COLUMN {col} {definition}"))
         except Exception:
@@ -137,7 +138,7 @@ def api_trades():
             market_price, fair_value, edge,
             position_size, limit_price, fill_price,
             status, pnl, paper, reason,
-            condition_id, end_date, slug
+            condition_id, end_date, slug, market_url
         FROM trades
         ORDER BY timestamp DESC
         LIMIT 100
@@ -156,15 +157,12 @@ def api_trades():
                 r["time_str"] = dt.strftime("%m/%d %H:%M")
             except Exception:
                 r["time_str"] = str(ts)[:16]
-        # Polymarket link
-        slug = r.get("slug") or ""
-        condition_id = r.get("condition_id") or ""
-        if slug:
-            r["polymarket_url"] = f"https://polymarket.com/event/{slug}"
-        elif condition_id:
-            r["polymarket_url"] = f"https://polymarket.com/markets?conditionId={condition_id}"
-        else:
-            r["polymarket_url"] = ""
+        # Polymarket link - prefer direct URL from API, then slug, then condition_id
+        r["polymarket_url"] = (
+            r.get("market_url") or
+            (f"https://polymarket.com/event/{r['slug']}" if r.get("slug") else "") or
+            ""
+        )
         # Hours left until resolution
         end_raw = r.get("end_date") or ""
         if end_raw:

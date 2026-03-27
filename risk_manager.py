@@ -10,11 +10,11 @@ import db_adapter
 logger = logging.getLogger(__name__)
 
 DAILY_BUDGET = 10.0
-MAX_TRADE_SIZE = 2.0
-MAX_OPEN_POSITIONS = 3
+MAX_TRADE_SIZE = 1.0
+MAX_OPEN_POSITIONS = 5
 MIN_HOURS_TO_RESOLUTION = 6
 MAX_HOURS_TO_RESOLUTION = 168  # only trade markets resolving within 7 days
-DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather", "political"}  # have real APIs or Claude
+DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather", "political", "economic"}
 STOP_LOSS_THRESHOLD = -8.0
 
 
@@ -76,7 +76,8 @@ class RiskManager:
         """))
 
         # Migration: add columns if missing (safe to run on existing DBs)
-        for col, definition in [("end_date", "TEXT DEFAULT ''"), ("slug", "TEXT DEFAULT ''")]:
+        for col, definition in [("end_date", "TEXT DEFAULT ''"), ("slug", "TEXT DEFAULT ''"),
+                                 ("category", "TEXT DEFAULT ''"), ("market_url", "TEXT DEFAULT ''")]:
             try:
                 c.execute(db_adapter.adapt(f"ALTER TABLE trades ADD COLUMN {col} {definition}"))
             except Exception:
@@ -127,6 +128,16 @@ class RiskManager:
         conn.close()
         return row["realized_pnl"] if row else 0.0
 
+    def get_open_categories(self) -> set:
+        conn = db_adapter.connect()
+        c = conn.cursor()
+        c.execute(db_adapter.adapt(
+            "SELECT DISTINCT category FROM trades WHERE status IN ('pending','filled','paper') AND date(timestamp)=?"),
+            (self._today(),))
+        rows = db_adapter.fetchrows(c)
+        conn.close()
+        return {r["category"] for r in rows if r.get("category")}
+
     def get_open_positions(self) -> int:
         conn = db_adapter.connect()
         c = conn.cursor()
@@ -161,17 +172,19 @@ class RiskManager:
         if opp.hours_left > MAX_HOURS_TO_RESOLUTION:
             return False, f"Resolves too far: {opp.hours_left:.0f}h > {MAX_HOURS_TO_RESOLUTION}h max"
 
-        # Only trade data-driven categories (sports, crypto, weather)
         if opp.category not in DATA_DRIVEN_CATEGORIES:
-            return False, f"Category '{opp.category}' not data-driven — skipping"
+            return False, f"Category '{opp.category}' not supported — skipping"
+
+        open_cats = self.get_open_categories()
+        if opp.category in open_cats:
+            return False, f"Already have open position in {opp.category}"
 
         open_pos = self.get_open_positions()
         if open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Max open positions reached: {open_pos}/{MAX_OPEN_POSITIONS}"
 
-        political_cap = 1.0 if opp.category == "political" else MAX_TRADE_SIZE
-        if opp.position_size > political_cap:
-            return False, f"Position size ${opp.position_size:.2f} > max ${political_cap:.2f} for {opp.category}"
+        if opp.position_size > MAX_TRADE_SIZE:
+            return False, f"Position size ${opp.position_size:.2f} > max ${MAX_TRADE_SIZE:.2f}"
 
         if abs(opp.edge) < 0.08:
             return False, f"Edge {opp.edge:.1%} below minimum 8%"
@@ -209,6 +222,8 @@ class RiskManager:
             reason,
             getattr(opp, "end_date", ""),
             getattr(opp, "slug", ""),
+            getattr(opp, "category", ""),
+            getattr(opp, "market_url", ""),
         )
 
         if db_adapter.pg():
@@ -216,8 +231,8 @@ class RiskManager:
                 INSERT INTO trades
                 (timestamp, condition_id, question, direction, market_price,
                  fair_value, edge, kelly_fraction, position_size, limit_price,
-                 order_id, status, paper, reason, end_date, slug)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 order_id, status, paper, reason, end_date, slug, category, market_url)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
             """, params)
             trade_id = c.fetchone()[0]
@@ -226,8 +241,8 @@ class RiskManager:
                 INSERT INTO trades
                 (timestamp, condition_id, question, direction, market_price,
                  fair_value, edge, kelly_fraction, position_size, limit_price,
-                 order_id, status, paper, reason, end_date, slug)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 order_id, status, paper, reason, end_date, slug, category, market_url)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, params)
             trade_id = c.lastrowid
 

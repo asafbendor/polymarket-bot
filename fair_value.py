@@ -56,7 +56,7 @@ class FairValueEngine:
                 return await self._sports_estimate(market)
             elif category == "crypto":
                 return await self._crypto_estimate(market)
-            elif category == "political":
+            elif category in ("political", "economic"):
                 return await self._political_estimate(market)
             else:
                 # Fallback: use Claude for anything else

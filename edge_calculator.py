@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 MIN_EDGE = 0.08          # 8% minimum edge to trade
 KELLY_FRACTION = 0.25    # fractional Kelly (25% of full Kelly)
-MAX_POSITION_USD = 2.0   # hard cap per trade
+MAX_POSITION_USD = 1.0   # hard cap per trade
 
 
 @dataclass
@@ -30,6 +30,7 @@ class TradeOpportunity:
     hours_left: float
     end_date: str = ""
     slug: str = ""
+    market_url: str = ""
 
     def __str__(self):
         sign = "+" if self.edge >= 0 else ""
@@ -137,4 +138,5 @@ class EdgeCalculator:
             hours_left=market.get("hours_left", 0),
             end_date=market.get("end_date", ""),
             slug=market.get("slug", ""),
+            market_url=market.get("market_url", ""),
         )
