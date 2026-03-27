@@ -56,6 +56,12 @@ def init_db():
             message     TEXT
         )
     """))
+    # Migration: add columns if missing
+    for col, definition in [("end_date", "TEXT DEFAULT ''"), ("slug", "TEXT DEFAULT ''")]:
+        try:
+            c.execute(db_adapter.adapt(f"ALTER TABLE trades ADD COLUMN {col} {definition}"))
+        except Exception:
+            pass  # column already exists
     conn.commit()
     conn.close()
 
