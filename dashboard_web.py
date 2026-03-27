@@ -124,6 +124,7 @@ def api_stats():
         "budget_remaining": round(DAILY_BUDGET - (stats["spent"] or 0), 2),
         "daily_budget": DAILY_BUDGET,
         "open_positions": stats["open_positions"] or 0,
+        "max_positions": 5,
         "total_trades": total_trades["n"],
         "filled_trades": filled["n"],
         "win_rate": win_rate,
@@ -340,7 +341,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="kpi">
       <div class="label">Open Positions</div>
       <div class="value neutral" id="kpi-open">-</div>
-      <div class="sub">max 3</div>
+      <div class="sub">max 5</div>
       <div class="progress-wrap"><div class="progress-bar" id="positions-bar" style="width:0%;background:var(--purple)"></div></div>
     </div>
     <div class="kpi">
@@ -406,8 +407,9 @@ async function loadStats() {
   document.getElementById('kpi-winrate').className = 'value ' + (wr >= 55 ? 'pos' : wr >= 45 ? 'neutral' : 'neg');
   document.getElementById('kpi-winrate-sub').textContent = d.filled_trades + ' filled trades';
   const op = d.open_positions;
-  document.getElementById('kpi-open').textContent = op + '/3';
-  document.getElementById('positions-bar').style.width = (100 * op / 3) + '%';
+  const maxPos = d.max_positions || 5;
+  document.getElementById('kpi-open').textContent = op + '/' + maxPos;
+  document.getElementById('positions-bar').style.width = (100 * op / maxPos) + '%';
   document.getElementById('kpi-trades').textContent = d.total_trades;
   document.getElementById('kpi-trades-sub').textContent = d.filled_trades + ' filled';
   document.getElementById('kpi-spent').textContent = '$' + d.spent.toFixed(2);
