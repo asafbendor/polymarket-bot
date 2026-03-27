@@ -75,16 +75,24 @@ class RiskManager:
             )
         """))
 
-        # Migration: add columns if missing (safe to run on existing DBs)
+        conn.commit()
+        conn.close()
+
+        # Migration: each column in its own connection/transaction (PostgreSQL-safe)
         for col, definition in [("end_date", "TEXT DEFAULT ''"), ("slug", "TEXT DEFAULT ''"),
                                  ("category", "TEXT DEFAULT ''"), ("market_url", "TEXT DEFAULT ''")]:
             try:
-                c.execute(db_adapter.adapt(f"ALTER TABLE trades ADD COLUMN {col} {definition}"))
+                mconn = db_adapter.connect()
+                mc = mconn.cursor()
+                mc.execute(db_adapter.adapt(f"ALTER TABLE trades ADD COLUMN {col} {definition}"))
+                mconn.commit()
+                mconn.close()
             except Exception:
-                pass  # column already exists
-
-        conn.commit()
-        conn.close()
+                try:
+                    mconn.rollback()
+                    mconn.close()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Daily record helpers
