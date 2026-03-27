@@ -48,6 +48,14 @@ def init_db():
             open_positions  INTEGER DEFAULT 0
         )
     """))
+    c.execute(db_adapter.adapt("""
+        CREATE TABLE IF NOT EXISTS bot_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT,
+            level       TEXT,
+            message     TEXT
+        )
+    """))
     conn.commit()
     conn.close()
 
@@ -184,14 +192,13 @@ def api_markets():
 
 @app.route("/api/log")
 def api_log():
-    log_path = os.getenv("LOG_PATH", "bot.log")
-    lines = []
     try:
-        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
-            lines = [l.rstrip() for l in all_lines[-50:]]
-    except FileNotFoundError:
-        lines = ["Log file not found — is the bot running?"]
+        rows = query("SELECT message FROM bot_log ORDER BY id DESC LIMIT 50")
+        lines = [r["message"] for r in reversed(rows)]
+        if not lines:
+            lines = ["No log entries yet — waiting for bot to run..."]
+    except Exception:
+        lines = ["Log table not ready yet..."]
     return jsonify({"lines": lines})
 
 

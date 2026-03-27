@@ -22,8 +22,13 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from dotenv import load_dotenv
+import glob
 
-load_dotenv()
+# Windows Hebrew locale sometimes saves .env with invisible RTL chars in filename
+_env_files = glob.glob("*.env") + glob.glob(".env") + glob.glob("*\\.env")
+for _f in _env_files:
+    load_dotenv(dotenv_path=_f, override=True)
+load_dotenv(override=True)  # fallback standard search
 
 from market_scanner import MarketScanner, SCAN_INTERVAL_SECONDS
 from fair_value import FairValueEngine
@@ -34,6 +39,27 @@ from executor import Executor, ORDER_CHECK_INTERVAL
 # ------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------
+class DbLogHandler(logging.Handler):
+    """Writes log records to bot_log table in DB (for dashboard)."""
+    def emit(self, record):
+        try:
+            import db_adapter
+            msg = self.format(record)
+            conn = db_adapter.connect()
+            c = conn.cursor()
+            c.execute(db_adapter.adapt(
+                "INSERT INTO bot_log (timestamp, level, message) VALUES (?,?,?)"
+            ), (datetime.now(timezone.utc).isoformat(), record.levelname, msg[:500]))
+            # Keep only last 200 rows
+            c.execute(db_adapter.adapt(
+                "DELETE FROM bot_log WHERE id NOT IN (SELECT id FROM bot_log ORDER BY id DESC LIMIT 200)"
+            ))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # never let logging crash the bot
+
+
 def setup_logging(verbose: bool = False):
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "%(asctime)s %(levelname)-8s %(message)s"
@@ -42,6 +68,7 @@ def setup_logging(verbose: bool = False):
                         handlers=[
                             logging.StreamHandler(sys.stdout),
                             logging.FileHandler("bot.log", encoding="utf-8"),
+                            DbLogHandler(),
                         ])
     # Quiet noisy libraries
     for lib in ["aiohttp", "asyncio"]:
