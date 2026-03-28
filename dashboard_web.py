@@ -126,9 +126,14 @@ def api_stats():
     if filled["n"] > 0:
         win_rate = round(100 * winning["n"] / filled["n"], 1)
 
-    # Determine live mode: check if any trade today is NOT paper
+    # Count actual open positions (pending trades, any date)
+    open_pos = query_one(
+        "SELECT COUNT(*) as n FROM trades WHERE status='pending'"
+    ) or {"n": 0}
+
+    # Determine live mode: any non-paper trade exists
     live_check = query_one(
-        "SELECT COUNT(*) as n FROM trades WHERE paper=0 AND date(timestamp)=?", (today,)
+        "SELECT COUNT(*) as n FROM trades WHERE paper=0"
     ) or {"n": 0}
     is_live = live_check["n"] > 0
 
@@ -138,7 +143,7 @@ def api_stats():
         "realized_pnl": round(stats["realized_pnl"] or 0, 2),
         "budget_remaining": round(DAILY_BUDGET - (stats["spent"] or 0), 2),
         "daily_budget": DAILY_BUDGET,
-        "open_positions": stats["open_positions"] or 0,
+        "open_positions": open_pos["n"],
         "max_positions": 5,
         "total_trades": total_trades["n"],
         "filled_trades": filled["n"],

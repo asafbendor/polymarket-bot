@@ -326,6 +326,18 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
     db_path = "trades.db"
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip().lstrip("=")
 
+    # Clear old log entries on startup
+    try:
+        import db_adapter
+        conn = db_adapter.connect()
+        c = conn.cursor()
+        c.execute("DELETE FROM bot_log")
+        conn.commit()
+        conn.close()
+        print("  Bot log cleared (fresh start)")
+    except Exception:
+        pass
+
     # Startup diagnostics
     if anthropic_key:
         masked = anthropic_key[:10] + "..." + anthropic_key[-4:]
