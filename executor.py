@@ -63,6 +63,13 @@ class Executor:
             except Exception as e:
                 logger.warning(f"API creds FAILED (non-fatal): {e}")
 
+            # USDC allowance — must be approved once on-chain before orders work
+            try:
+                self._client.update_allowances()
+                logger.warning("[LIVE] USDC allowances updated OK")
+            except Exception as e:
+                logger.warning(f"[LIVE] update_allowances failed: {e}")
+
         except ImportError:
             logger.error(
                 "py-clob-client not installed. Run: pip install py-clob-client"

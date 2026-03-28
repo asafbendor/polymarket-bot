@@ -394,17 +394,23 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
     db_path = "trades.db"
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip().lstrip("=")
 
-    # Clear old log entries on startup
+    # Clear old log entries on startup + cancel fake pending trades (no order_id)
     try:
         import db_adapter
         conn = db_adapter.connect()
         c = conn.cursor()
         c.execute("DELETE FROM bot_log")
+        # Cancel pending trades that never got an order_id (failed silently)
+        c.execute(db_adapter.adapt(
+            "UPDATE trades SET status='cancelled' WHERE status='pending' AND (order_id IS NULL OR order_id='')"
+        ))
+        cancelled = conn.cursor().rowcount if hasattr(conn.cursor(), 'rowcount') else '?'
         conn.commit()
         conn.close()
         print("  Bot log cleared (fresh start)")
-    except Exception:
-        pass
+        print("  Stale pending trades cancelled")
+    except Exception as e:
+        print(f"  Startup cleanup warning: {e}")
 
     # Startup diagnostics
     if anthropic_key:
