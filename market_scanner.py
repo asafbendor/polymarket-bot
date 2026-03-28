@@ -190,6 +190,7 @@ class MarketScanner:
 
         now = datetime.now(timezone.utc)
         qualified = []
+        skip_no_date = skip_time = skip_liq = skip_err = 0
 
         for raw in all_raw:
             try:
@@ -197,15 +198,18 @@ class MarketScanner:
                 end_raw = raw.get("endDate") or raw.get("end_date_iso") or raw.get("endDateIso") or ""
                 end_dt = self._parse_end_date(end_raw)
                 if not end_dt:
+                    skip_no_date += 1
                     continue
                 hours_left = (end_dt - now).total_seconds() / 3600
                 if hours_left < MIN_HOURS_TO_RESOLUTION:
+                    skip_time += 1
                     continue
 
                 # --- liquidity check ---
                 liquidity = float(raw.get("liquidityNum") or raw.get("liquidity") or 0)
                 volume = float(raw.get("volume") or raw.get("volumeNum") or 0)
                 if liquidity < MIN_LIQUIDITY:
+                    skip_liq += 1
                     continue
 
                 # --- extract tokens (YES/NO) ---
@@ -287,10 +291,11 @@ class MarketScanner:
                 self._upsert_market(market)
 
             except Exception as e:
-                logger.debug(f"Parse error for market: {e}")
+                skip_err += 1
+                logger.warning(f"Parse error: {e} | market: {raw.get('question','?')[:40]}")
                 continue
 
-        logger.info(f"Qualified markets (liquid + time): {len(qualified)}")
+        logger.info(f"Qualified: {len(qualified)} | skipped: no_date={skip_no_date} too_soon={skip_time} low_liq={skip_liq} errors={skip_err}")
 
         # Improvement 1: enrich markets that still have default 0.5 price with real CLOB midpoints
         qualified = await self._enrich_with_clob_prices(qualified)
