@@ -130,9 +130,13 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # Clean token_id — Gamma API sometimes injects TAB/= prefix
+        # Clean token_id — Gamma API injects garbage prefix (\t, =, etc.)
+        # Extract only the hex address: 0x + 40+ hex chars
+        import re as _re
         if isinstance(token_id, str):
-            token_id = token_id.strip().lstrip("=")
+            m = _re.search(r'0x[0-9a-fA-F]{10,}', token_id)
+            if m:
+                token_id = m.group(0)
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
