@@ -209,21 +209,39 @@ class MarketScanner:
                     continue
 
                 # --- extract tokens (YES/NO) ---
-                tokens = raw.get("tokens") or raw.get("outcomes") or []
                 yes_token_id = None
                 no_token_id = None
                 yes_price = 0.5
                 no_price = 0.5
 
-                if tokens and isinstance(tokens[0], dict):
-                    for tok in tokens:
-                        outcome = str(tok.get("outcome", "")).lower()
-                        if outcome == "yes":
-                            yes_token_id = tok.get("token_id") or tok.get("tokenId")
-                            yes_price = float(tok.get("price", 0.5))
-                        elif outcome == "no":
-                            no_token_id = tok.get("token_id") or tok.get("tokenId")
-                            no_price = float(tok.get("price", 0.5))
+                # Gamma API format: outcomePrices + outcomes + clobTokenIds
+                outcome_prices = raw.get("outcomePrices") or []
+                outcome_names = raw.get("outcomes") or []
+                clob_token_ids = raw.get("clobTokenIds") or []
+
+                if outcome_prices and outcome_names:
+                    for i, name in enumerate(outcome_names):
+                        name_l = str(name).lower()
+                        price = float(outcome_prices[i]) if i < len(outcome_prices) else 0.5
+                        token_id = clob_token_ids[i] if i < len(clob_token_ids) else None
+                        if name_l == "yes":
+                            yes_price = price
+                            yes_token_id = token_id
+                        elif name_l == "no":
+                            no_price = price
+                            no_token_id = token_id
+                else:
+                    # Fallback: CLOB tokens format
+                    tokens = raw.get("tokens") or []
+                    if tokens and isinstance(tokens[0], dict):
+                        for tok in tokens:
+                            outcome = str(tok.get("outcome", "")).lower()
+                            if outcome == "yes":
+                                yes_token_id = tok.get("token_id") or tok.get("tokenId")
+                                yes_price = float(tok.get("price", 0.5))
+                            elif outcome == "no":
+                                no_token_id = tok.get("token_id") or tok.get("tokenId")
+                                no_price = float(tok.get("price", 0.5))
 
                 # Sanity check: prices should sum to ~1
                 if abs(yes_price + no_price - 1.0) > 0.15:

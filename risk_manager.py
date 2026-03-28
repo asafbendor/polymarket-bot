@@ -140,8 +140,7 @@ class RiskManager:
         conn = db_adapter.connect()
         c = conn.cursor()
         c.execute(db_adapter.adapt(
-            "SELECT DISTINCT category FROM trades WHERE status IN ('pending','filled','paper') AND date(timestamp)=?"),
-            (self._today(),))
+            "SELECT DISTINCT category FROM trades WHERE status IN ('pending','filled')"))
         rows = db_adapter.fetchrows(c)
         conn.close()
         return {r["category"] for r in rows if r.get("category")}
@@ -150,8 +149,7 @@ class RiskManager:
         conn = db_adapter.connect()
         c = conn.cursor()
         c.execute(db_adapter.adapt(
-            "SELECT COUNT(*) as n FROM trades WHERE status IN ('pending','filled','paper') AND date(timestamp)=?"),
-            (self._today(),))
+            "SELECT COUNT(*) as n FROM trades WHERE status IN ('pending','filled')"))
         row = db_adapter.fetchone(c)
         conn.close()
         return row["n"] if row else 0
