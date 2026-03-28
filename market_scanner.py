@@ -236,8 +236,17 @@ class MarketScanner:
                     tags = [t.get("label", "") for t in tags]
 
                 condition_id = raw.get("conditionId") or raw.get("condition_id") or raw.get("id") or ""
-                slug = (raw.get("slug") or raw.get("eventSlug") or raw.get("market_slug") or raw.get("marketSlug") or "")
-                market_url = raw.get("marketUrl") or raw.get("url") or (f"https://polymarket.com/event/{slug}" if slug else "")
+                # Build Polymarket URL: /event/<event_slug>/<market_slug>
+                market_slug = raw.get("slug") or ""
+                events = raw.get("events") or []
+                event_slug = events[0].get("slug", "") if events else ""
+                slug = event_slug or market_slug
+                if event_slug and market_slug:
+                    market_url = f"https://polymarket.com/event/{event_slug}/{market_slug}"
+                elif slug:
+                    market_url = f"https://polymarket.com/event/{slug}"
+                else:
+                    market_url = ""
 
                 market = {
                     "condition_id": condition_id,

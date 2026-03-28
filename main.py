@@ -30,7 +30,7 @@ load_dotenv()  # load .env if present, but Railway env vars take priority
 from market_scanner import MarketScanner, SCAN_INTERVAL_SECONDS
 from fair_value import FairValueEngine
 from edge_calculator import EdgeCalculator
-from risk_manager import RiskManager
+from risk_manager import RiskManager, MAX_OPEN_POSITIONS
 from executor import Executor, ORDER_CHECK_INTERVAL
 
 # ------------------------------------------------------------------
@@ -117,8 +117,8 @@ async def run_scan_cycle(
     # Early exit: no point calling Claude if budget/positions are exhausted
     budget_check = risk_mgr.get_budget_remaining()
     positions_check = risk_mgr.get_open_positions()
-    if budget_check < 0.50 or positions_check >= 3:
-        print(f"[{now_str}] Skipping analysis — budget=${budget_check:.2f}, positions={positions_check}/3")
+    if budget_check < 0.50 or positions_check >= MAX_OPEN_POSITIONS:
+        print(f"[{now_str}] Skipping analysis — budget=${budget_check:.2f}, positions={positions_check}/{MAX_OPEN_POSITIONS}")
         return
 
     # Phase 2 (Improvement 3): Estimate fair value for ALL markets concurrently,
@@ -271,6 +271,25 @@ async def run_scan_cycle(
 # ------------------------------------------------------------------
 async def order_followup_loop(executor: Executor, risk_mgr: RiskManager):
     """Check pending orders every ORDER_CHECK_INTERVAL seconds."""
+    # Load pending orders from DB on startup (survive restarts)
+    try:
+        import db_adapter
+        conn = db_adapter.connect()
+        c = conn.cursor()
+        c.execute(db_adapter.adapt(
+            "SELECT order_id FROM trades WHERE status='pending' AND order_id IS NOT NULL AND order_id != ''"
+        ))
+        rows = c.fetchall()
+        conn.close()
+        for row in rows:
+            oid = row[0] if isinstance(row, (list, tuple)) else row.get("order_id", row[0])
+            if oid and oid not in pending_orders:
+                pending_orders[oid] = {"trade_id": None, "opp": None, "placed_at": 0}
+        if pending_orders:
+            logger.info(f"Loaded {len(pending_orders)} pending orders from DB")
+    except Exception as e:
+        logger.debug(f"Could not load pending orders: {e}")
+
     while True:
         await asyncio.sleep(ORDER_CHECK_INTERVAL)
 
