@@ -18,7 +18,7 @@ CLOB_BASE = "https://clob.polymarket.com"
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
 MIN_LIQUIDITY = 500       # USD
-MIN_HOURS_TO_RESOLUTION = 24
+MIN_HOURS_TO_RESOLUTION = 6
 SCAN_INTERVAL_SECONDS = 900  # 15 minutes
 
 
@@ -219,9 +219,22 @@ class MarketScanner:
                 no_price = 0.5
 
                 # Gamma API format: outcomePrices + outcomes + clobTokenIds
-                outcome_prices = raw.get("outcomePrices") or []
-                outcome_names = raw.get("outcomes") or []
-                clob_token_ids = raw.get("clobTokenIds") or []
+                # outcomePrices may arrive as JSON string '["0.02","0.98"]'
+                import json as _json
+                _op = raw.get("outcomePrices") or []
+                if isinstance(_op, str):
+                    _op = _json.loads(_op)
+                outcome_prices = _op
+
+                _on = raw.get("outcomes") or []
+                if isinstance(_on, str):
+                    _on = _json.loads(_on)
+                outcome_names = _on
+
+                _ct = raw.get("clobTokenIds") or []
+                if isinstance(_ct, str):
+                    _ct = _json.loads(_ct)
+                clob_token_ids = _ct
 
                 if outcome_prices and outcome_names:
                     for i, name in enumerate(outcome_names):
