@@ -173,6 +173,7 @@ def api_trades():
         r["pnl"] = round(r["pnl"] or 0, 3)
         r["is_paper"] = bool(r["paper"])
         ts = r.get("timestamp", "")
+        r["timestamp_utc"] = ts  # send raw UTC, JS will convert to local
         if ts:
             try:
                 dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
@@ -244,8 +245,8 @@ def api_markets():
 @app.route("/api/log")
 def api_log():
     try:
-        rows = query("SELECT message FROM bot_log ORDER BY id DESC LIMIT 50")
-        lines = [r["message"] for r in reversed(rows)]
+        rows = query("SELECT timestamp, message FROM bot_log ORDER BY id DESC LIMIT 50")
+        lines = [f'{r["timestamp"]}|{r["message"]}' for r in reversed(rows)]
         if not lines:
             lines = ["No log entries yet — waiting for bot to run..."]
     except Exception:
@@ -429,6 +430,13 @@ let pnlChart = null;
 function fmt$(v) { return (v >= 0 ? '+' : '') + '$' + Math.abs(v).toFixed(2); }
 function fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; }
 function colorClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neutral'; }
+function formatLocalTime(utc) {
+  if (!utc) return '';
+  try {
+    const d = new Date(utc.endsWith('Z') || utc.includes('+') ? utc : utc + 'Z');
+    return d.toLocaleDateString('he-IL', {month:'2-digit',day:'2-digit'}) + ' ' + d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit',hour12:false});
+  } catch(e) { return utc.slice(0,16); }
+}
 
 async function loadStats() {
   const d = await fetch('/api/stats').then(r => r.json());
@@ -505,7 +513,7 @@ async function loadTrades() {
       ? `<div class="truncate"><a href="${r.polymarket_url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none" title="${q}">${q}</a></div>`
       : `<div class="truncate" title="${q}">${q}</div>`;
     return `<tr>
-      <td data-label="Time" style="color:var(--muted);white-space:nowrap">${r.time_str||''}</td>
+      <td data-label="Time" style="color:var(--muted);white-space:nowrap">${formatLocalTime(r.timestamp_utc)}</td>
       <td data-label="Market">${marketCell}</td>
       <td data-label="Ends" style="color:var(--muted);white-space:nowrap;font-size:12px">${r.end_date_str||'-'}</td>
       <td data-label="Dir">${dirBadge}</td>
@@ -527,7 +535,19 @@ async function loadLog() {
     let cls = '';
     if (line.includes('WARNING')) cls = 'log-line-WARNING';
     if (line.includes('ERROR'))   cls = 'log-line-ERROR';
-    return `<div class="line ${cls}">${line}</div>`;
+    // Convert UTC timestamp to local time
+    const parts = line.split('|');
+    let display = line;
+    if (parts.length >= 2) {
+      const utc = parts[0];
+      const msg = parts.slice(1).join('|');
+      try {
+        const d = new Date(utc);
+        const local = d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+        display = local + ' ' + msg;
+      } catch(e) { display = msg; }
+    }
+    return `<div class="line ${cls}">${display}</div>`;
   }).join('');
   box.scrollTop = box.scrollHeight;
 }
