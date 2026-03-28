@@ -183,10 +183,10 @@ async def run_scan_cycle(
     # Sort: highest absolute edge first
     candidates.sort(key=lambda o: abs(o.edge), reverse=True)
 
-    # Print near-misses
+    # Log near-misses
     for question, mkt_p, fair_value, direction, edge in near_misses[:5]:
-        print(
-            f"[{now_str}] {question[:55]}: "
+        logger.info(
+            f"near-miss: {question[:55]} "
             f"market={mkt_p:.0%} fair={fair_value:.0%} "
             f"{direction} edge={edge:.0%} (below threshold)"
         )
@@ -203,16 +203,16 @@ async def run_scan_cycle(
 
         opportunities_found += 1
         sign = "+" if opp.edge >= 0 else ""
-        print(
-            f"[{now_str}] {opp.question[:55]}: "
+        logger.info(
+            f"candidate: {opp.question[:55]} "
             f"market={opp.market_price:.0%} fair={opp.fair_value:.0%} "
-            f"{opp.direction} edge={sign}{opp.edge:.0%} >> TRADING"
+            f"{opp.direction} edge={sign}{opp.edge:.0%}"
         )
 
         # Risk manager approval
         approved, reason = risk_mgr.approve(opp)
         if not approved:
-            print(f"[{now_str}] REJECTED: {reason}")
+            logger.info(f"REJECTED: {reason}")
             risk_mgr.log_rejection(opp, reason)
             continue
 
@@ -220,10 +220,9 @@ async def run_scan_cycle(
         result = await executor.execute(opp)
         limit_price = result.get("limit_price", opp.fair_value)
 
-        print(
-            f"[{now_str}] {mode_tag} Position: ${opp.position_size:.2f} {opp.direction} "
-            f"@ {limit_price:.3f} limit | "
-            f"Kelly: {opp.full_kelly:.1%} → adj: {opp.fractional_kelly:.1%}"
+        logger.info(
+            f"{mode_tag} BET: ${opp.position_size:.2f} {opp.direction} "
+            f"on '{opp.question[:50]}' @ {limit_price:.3f}"
         )
 
         # Log to DB
@@ -257,13 +256,13 @@ async def run_scan_cycle(
         await asyncio.sleep(0.5)
 
     # Summary
-    print(
-        f"[{now_str}] Scanned {total_markets} markets | "
-        f"{opportunities_found} opportunities found | "
-        f"{trades_attempted} trades placed"
+    logger.info(
+        f"Scan done: {total_markets} markets | "
+        f"{len(candidates)} candidates | "
+        f"{opportunities_found} above edge | "
+        f"{trades_attempted} placed"
     )
-    print(f"[{now_str}] {risk_mgr.status_line()}")
-    print()
+    logger.info(risk_mgr.status_line())
 
 
 # ------------------------------------------------------------------

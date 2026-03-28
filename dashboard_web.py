@@ -336,12 +336,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     #trades-table thead { display: none; }
     #trades-table tr { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 10px 12px; }
     #trades-table td { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border: none; font-size: 13px; }
-    #trades-table td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; margin-right: 8px; }
+    #trades-table td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; margin-right: 8px; min-width: 55px; }
     #trades-table td[data-label="Market"] { display: block; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
     #trades-table td[data-label="Market"]::before { display: none; }
-    #trades-table td[data-label="Entry"],
-    #trades-table td[data-label="Fair"],
-    #trades-table td[data-label="Size"] { display: none; }
+    #trades-table td[data-label="Fair"] { display: none; }
     .truncate { max-width: 100%; font-size: 13px; font-weight: 500; }
     .kpi-row { grid-template-columns: 1fr 1fr; }
     .grid-2 { grid-template-columns: 1fr; }
@@ -355,7 +353,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <h1>Polymarket Bot</h1>
   <div style="display:flex;align-items:center;gap:12px">
     <span class="badge" id="mode-badge">PAPER</span>
-    <span class="refresh-info"><span class="spinner"></span><span id="countdown">30</span>s to refresh</span>
+    <span class="refresh-info"><span class="spinner"></span><span id="countdown">10</span>s to refresh</span>
   </div>
 </header>
 
@@ -552,11 +550,11 @@ async function loadLog() {
   box.scrollTop = box.scrollHeight;
 }
 
-let countdown = 30;
+let countdown = 10;
 function tick() {
   countdown--;
   document.getElementById('countdown').textContent = countdown;
-  if (countdown <= 0) { countdown = 30; loadAll(); }
+  if (countdown <= 0) { countdown = 10; loadAll(); }
 }
 
 async function loadAll() {
