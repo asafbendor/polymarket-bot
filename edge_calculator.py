@@ -86,6 +86,11 @@ class EdgeCalculator:
             )
             return None
 
+        # Sanity check: if fair_value is >50% away from market price, likely a calc error
+        if abs(edge) > 0.50:
+            logger.debug(f"Edge {edge:.1%} too extreme (likely calc error), skipping: {market.get('question','')[:50]}")
+            return None
+
         # Kelly formula
         # For a binary bet at price p with true prob q:
         # Kelly fraction = (q - p) / (1 - p)   [when betting YES]

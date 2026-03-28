@@ -133,15 +133,24 @@ class FairValueEngine:
                 prob = min(avg_precip / 10.0, 0.95)  # normalize: 10mm = 95% chance
                 return round(max(prob, 0.05), 3)
 
-        # Temperature threshold question (e.g. "above 30°C")
+        # Temperature threshold question (e.g. "above 30°C" or "be 6°C")
         temp_match = re.search(r"(\d{1,3})\s*°?\s*(c|f)", q_lower)
         if temp_match and temps:
             threshold = float(temp_match.group(1))
             unit = temp_match.group(2)
             if unit == "f":
-                threshold = (threshold - 32) * 5 / 9  # convert to Celsius
-            above_count = sum(1 for t in temps[:3] if t is not None and t > threshold)
-            return round(above_count / max(len(temps[:3]), 1), 3)
+                threshold = (threshold - 32) * 5 / 9
+            # Detect direction: "above/over/exceed" vs "below/under/be exactly"
+            is_above_q = any(k in q_lower for k in ["above", "over", "exceed", "higher", "at least"])
+            is_below_q = any(k in q_lower for k in ["below", "under", "less", "colder"])
+            if is_above_q:
+                count = sum(1 for t in temps[:3] if t is not None and t > threshold)
+            elif is_below_q:
+                count = sum(1 for t in temps[:3] if t is not None and t < threshold)
+            else:
+                # "be X°C" — check proximity (within 3°C)
+                count = sum(1 for t in temps[:3] if t is not None and abs(t - threshold) <= 3)
+            return round(count / max(len(temps[:3]), 1), 3)
 
         # Generic "bad weather" question
         if codes:
