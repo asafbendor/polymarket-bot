@@ -80,14 +80,14 @@ class Executor:
         Returns dict with order_id, limit_price, status, message.
         """
         # Determine token and limit price
+        # Limit price: bid just above current market price to ensure fill
+        # Use market_price (not fair_value) so we don't place insane bids
         if opp.direction == "YES":
             token_id = opp.yes_token_id
-            limit_price = round(opp.fair_value * LIMIT_PRICE_DISCOUNT, 4)
+            limit_price = round(min(opp.market_price * 1.05, 0.97), 4)
         else:
             token_id = opp.no_token_id
-            # For NO bets, fair value of NO = 1 - fair_value(YES)
-            no_fair = 1.0 - opp.fair_value
-            limit_price = round(no_fair * LIMIT_PRICE_DISCOUNT, 4)
+            limit_price = round(min(opp.market_price * 1.05, 0.97), 4)
 
         # Ensure limit price is valid
         limit_price = max(0.01, min(0.99, limit_price))

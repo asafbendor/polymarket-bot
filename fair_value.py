@@ -286,11 +286,16 @@ class FairValueEngine:
         target_price = target_raw
 
         # Determine direction
-        is_above = any(k in question for k in [">", "above", "over", "exceed", "higher", "break"])
-        is_below = any(k in question for k in ["<", "below", "under", "drop", "lower", "fall"])
+        is_above = any(k in question for k in [">", "above", "over", "exceed", "higher", "break", "reach", "hit"])
+        is_below = any(k in question for k in ["<", "below", "under", "drop", "lower", "fall", "dip", "crash", "less than"])
+
+        # If current price >> target, "reach" means going DOWN (e.g. BTC reach $30k when at $80k)
+        if is_above and not is_below and current_price > target_price * 1.5:
+            is_above = False
+            is_below = True
 
         if not is_above and not is_below:
-            # Default: assume "above"
+            # Default: above
             is_above = True
 
         # Simple lognormal approximation
