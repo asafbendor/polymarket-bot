@@ -126,7 +126,7 @@ async def run_scan_cycle(
     #
     # Claude is only called for "other/political" markets — cap that to top 100
     # by liquidity to avoid blowing rate limits on 700+ requests.
-    MAX_CLAUDE_MARKETS = 100
+    MAX_CLAUDE_MARKETS = 20
     non_claude_categories = {"crypto", "sports", "weather"}
 
     # Sort: non-Claude categories first, then by liquidity desc
@@ -159,6 +159,9 @@ async def run_scan_cycle(
             return market, fv
 
     all_results = await asyncio.gather(*[estimate_one(m) for m in selected_markets])
+
+    got_fv = sum(1 for _, fv in all_results if fv is not None)
+    logger.info(f"Fair values obtained: {got_fv}/{len(all_results)}")
 
     # Phase 3: Score all results, collect candidates sorted by edge
     budget_remaining = risk_mgr.get_budget_remaining()
