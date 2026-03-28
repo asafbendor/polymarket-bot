@@ -22,6 +22,8 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from dotenv import load_dotenv
+import urllib.request
+import urllib.parse
 
 load_dotenv()  # load .env if present, but Railway env vars take priority
 
@@ -75,6 +77,23 @@ logger = logging.getLogger(__name__)
 # Pending orders tracker (order_id -> trade info)
 # ------------------------------------------------------------------
 pending_orders: dict[str, dict] = {}
+
+
+# ------------------------------------------------------------------
+# Telegram notifications
+# ------------------------------------------------------------------
+def send_telegram(message: str):
+    """Send a message to Telegram. Silently fails if not configured."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    try:
+        text = urllib.parse.quote_plus(message)
+        url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={text}&parse_mode=HTML"
+        urllib.request.urlopen(url, timeout=5)
+    except Exception as e:
+        logger.debug(f"Telegram send failed: {e}")
 
 
 # ------------------------------------------------------------------
@@ -214,6 +233,17 @@ async def run_scan_cycle(
             order_id=result.get("order_id", ""),
             paper=paper,
             reason=result.get("message", ""),
+        )
+
+        # Telegram notification
+        poly_url = getattr(opp, 'market_url', '') or ''
+        link = f'<a href="{poly_url}">Polymarket</a>' if poly_url else ''
+        send_telegram(
+            f"{'LIVE' if not paper else 'PAPER'} Bet placed!\n"
+            f"{opp.question[:80]}\n"
+            f"{opp.direction} ${opp.position_size:.2f} @ {limit_price:.1%}\n"
+            f"Edge: {opp.edge:+.1%} | Fair: {opp.fair_value:.0%}\n"
+            f"{link}"
         )
 
         if result.get("order_id"):
