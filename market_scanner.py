@@ -241,6 +241,8 @@ class MarketScanner:
                         name_l = str(name).lower()
                         price = float(outcome_prices[i]) if i < len(outcome_prices) else 0.5
                         token_id = clob_token_ids[i] if i < len(clob_token_ids) else None
+                        if isinstance(token_id, str):
+                            token_id = token_id.strip().lstrip("=")
                         if name_l == "yes":
                             yes_price = price
                             yes_token_id = token_id
