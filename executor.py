@@ -57,10 +57,11 @@ class Executor:
 
             # Create API credentials if needed
             try:
-                self._client.set_api_creds(self._client.create_or_derive_api_creds())
-                logger.info("CLOB client initialized (live mode)")
+                creds = self._client.create_or_derive_api_creds()
+                self._client.set_api_creds(creds)
+                logger.warning(f"CLOB client initialized OK — api_key={getattr(creds,'api_key','?')[:8]}...")
             except Exception as e:
-                logger.warning(f"API creds warning (non-fatal): {e}")
+                logger.warning(f"API creds FAILED (non-fatal): {e}")
 
         except ImportError:
             logger.error(
@@ -148,10 +149,25 @@ class Executor:
                 lambda: self._client.create_and_post_order(order_args)
             )
 
-            logger.info(f"[LIVE] API response: {str(resp)[:300]}")
-            order_id = resp.get("orderID", resp.get("order_id", ""))
+            logger.warning(f"[LIVE] RAW API response type={type(resp).__name__}: {repr(resp)[:500]}")
+
+            # py_clob_client returns nested structure: resp["order"]["id"] OR resp["orderID"]
+            order_id = ""
+            if isinstance(resp, dict):
+                order_id = (
+                    resp.get("orderID") or
+                    resp.get("order_id") or
+                    (resp.get("order") or {}).get("id") or
+                    (resp.get("order") or {}).get("orderID") or
+                    ""
+                )
+            elif hasattr(resp, "order_id"):
+                order_id = resp.order_id or ""
+            elif hasattr(resp, "orderID"):
+                order_id = resp.orderID or ""
+
             if not order_id:
-                logger.warning(f"[LIVE] No order_id in response — order may have failed: {resp}")
+                logger.warning(f"[LIVE] EMPTY order_id — full resp: {repr(resp)[:800]}")
 
             logger.info(
                 f"[LIVE] Order placed: {opp.direction} {shares:.2f} shares "
@@ -168,11 +184,13 @@ class Executor:
             }
 
         except Exception as e:
-            logger.error(f"Order placement failed: {e}")
+            import traceback
+            logger.warning(f"[LIVE] ORDER EXCEPTION: {type(e).__name__}: {e}")
+            logger.warning(f"[LIVE] TRACEBACK: {traceback.format_exc()[:600]}")
             return {
                 "order_id": "",
                 "status": "error",
-                "message": str(e),
+                "message": f"{type(e).__name__}: {e}",
                 "paper": False,
             }
 
