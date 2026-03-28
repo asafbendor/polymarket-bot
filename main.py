@@ -249,16 +249,21 @@ async def run_scan_cycle(
             reason=result.get("message", ""),
         )
 
-        # Telegram notification
+        # Telegram notification — only if order actually succeeded
         poly_url = getattr(opp, 'market_url', '') or ''
         link = f'<a href="{poly_url}">Polymarket</a>' if poly_url else ''
-        send_telegram(
-            f"{'LIVE' if not paper else 'PAPER'} Bet placed!\n"
-            f"{opp.question[:80]}\n"
-            f"{opp.direction} ${opp.position_size:.2f} @ {limit_price:.1%}\n"
-            f"Edge: {opp.edge:+.1%} | Fair: {opp.fair_value:.0%}\n"
-            f"{link}"
-        )
+        if result.get("status") == "error":
+            logger.error(f"Order FAILED: {result.get('message','')}")
+            send_telegram(f"Order FAILED: {opp.question[:60]}\nError: {result.get('message','')[:100]}")
+        else:
+            send_telegram(
+                f"{'LIVE' if not paper else 'PAPER'} Bet placed!\n"
+                f"{opp.question[:80]}\n"
+                f"{opp.direction} ${opp.position_size:.2f} @ {limit_price:.1%}\n"
+                f"Edge: {opp.edge:+.1%} | Fair: {opp.fair_value:.0%}\n"
+                f"OrderID: {result.get('order_id','none')}\n"
+                f"{link}"
+            )
 
         if result.get("order_id"):
             pending_orders[result["order_id"]] = {
