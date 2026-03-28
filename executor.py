@@ -148,7 +148,10 @@ class Executor:
                 lambda: self._client.create_and_post_order(order_args)
             )
 
+            logger.info(f"[LIVE] API response: {str(resp)[:300]}")
             order_id = resp.get("orderID", resp.get("order_id", ""))
+            if not order_id:
+                logger.warning(f"[LIVE] No order_id in response — order may have failed: {resp}")
 
             logger.info(
                 f"[LIVE] Order placed: {opp.direction} {shares:.2f} shares "

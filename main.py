@@ -82,18 +82,30 @@ pending_orders: dict[str, dict] = {}
 # ------------------------------------------------------------------
 # Telegram notifications
 # ------------------------------------------------------------------
-def send_telegram(message: str):
+def send_telegram(message: str, silent: bool = False):
     """Send a message to Telegram. Silently fails if not configured."""
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
+        logger.debug("Telegram not configured (missing token or chat_id)")
         return
     try:
-        text = urllib.parse.quote_plus(message)
-        url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={text}&parse_mode=HTML"
-        urllib.request.urlopen(url, timeout=5)
+        import json as _json
+        payload = _json.dumps({
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML",
+            "disable_notification": silent,
+        }).encode()
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = urllib.request.urlopen(req, timeout=5).read()
+        logger.info(f"Telegram sent OK: {message[:50]}")
     except Exception as e:
-        logger.debug(f"Telegram send failed: {e}")
+        logger.warning(f"Telegram send failed: {e}")
 
 
 # ------------------------------------------------------------------
@@ -396,6 +408,10 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
     else:
         print("  WARNING: ANTHROPIC_API_KEY is empty! Claude estimates will fail.")
     print(f"  All env vars with 'ANTHROPIC': {[k for k in os.environ if 'ANTHROPIC' in k.upper()]}")
+
+    # Test Telegram on startup
+    mode_str = "LIVE" if not paper else "PAPER"
+    send_telegram(f"Polymarket Bot started ({mode_str} mode)")
 
     risk_mgr = RiskManager(db_path=db_path)
     executor = Executor(paper=paper)
