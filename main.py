@@ -240,7 +240,15 @@ async def run_scan_cycle(
             f"on '{opp.question[:50]}' @ {limit_price:.3f}"
         )
 
-        # Log to DB
+        # Telegram notification — only if order actually succeeded
+        poly_url = getattr(opp, 'market_url', '') or ''
+        link = f'<a href="{poly_url}">Polymarket</a>' if poly_url else ''
+        if result.get("status") == "error":
+            logger.error(f"Order FAILED: {result.get('message','')}")
+            send_telegram(f"Order FAILED: {opp.question[:60]}\nError: {result.get('message','')[:100]}")
+            continue  # don't log failed orders to DB or count budget
+
+        # Log to DB only on success
         trade_id = risk_mgr.log_trade(
             opp,
             limit_price=limit_price,
@@ -249,13 +257,7 @@ async def run_scan_cycle(
             reason=result.get("message", ""),
         )
 
-        # Telegram notification — only if order actually succeeded
-        poly_url = getattr(opp, 'market_url', '') or ''
-        link = f'<a href="{poly_url}">Polymarket</a>' if poly_url else ''
-        if result.get("status") == "error":
-            logger.error(f"Order FAILED: {result.get('message','')}")
-            send_telegram(f"Order FAILED: {opp.question[:60]}\nError: {result.get('message','')[:100]}")
-        else:
+        if True:
             send_telegram(
                 f"{'LIVE' if not paper else 'PAPER'} Bet placed!\n"
                 f"{opp.question[:80]}\n"
@@ -404,11 +406,18 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
         c.execute(db_adapter.adapt(
             "UPDATE trades SET status='cancelled' WHERE status='pending' AND (order_id IS NULL OR order_id='')"
         ))
-        cancelled = conn.cursor().rowcount if hasattr(conn.cursor(), 'rowcount') else '?'
+        # Recalculate daily spent from actual active trades only
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        c.execute(db_adapter.adapt("""
+            UPDATE daily_stats SET spent = (
+                SELECT COALESCE(SUM(position_size), 0) FROM trades
+                WHERE status IN ('pending','filled') AND timestamp LIKE ?
+            ) WHERE date = ?
+        """), (today + "%", today))
         conn.commit()
         conn.close()
         print("  Bot log cleared (fresh start)")
-        print("  Stale pending trades cancelled")
+        print("  Stale pending trades cancelled, budget recalculated")
     except Exception as e:
         print(f"  Startup cleanup warning: {e}")
 
