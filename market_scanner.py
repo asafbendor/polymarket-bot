@@ -265,6 +265,11 @@ class MarketScanner:
                     yes_price = 0.5
                     no_price = 0.5
 
+                # Skip markets without token IDs — can't place orders
+                if not yes_token_id or not no_token_id:
+                    skip_err += 1
+                    continue
+
                 question = raw.get("question") or raw.get("title") or ""
                 tags = raw.get("tags") or []
                 if isinstance(tags, list) and tags and isinstance(tags[0], dict):
