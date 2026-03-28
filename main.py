@@ -22,13 +22,8 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from dotenv import load_dotenv
-import glob
 
-# Windows Hebrew locale sometimes saves .env with invisible RTL chars in filename
-_env_files = glob.glob("*.env") + glob.glob(".env") + glob.glob("*\\.env")
-for _f in _env_files:
-    load_dotenv(dotenv_path=_f, override=True)
-load_dotenv(override=True)  # fallback standard search
+load_dotenv()  # load .env if present, but Railway env vars take priority
 
 from market_scanner import MarketScanner, SCAN_INTERVAL_SECONDS
 from fair_value import FairValueEngine
