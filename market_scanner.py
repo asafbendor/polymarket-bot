@@ -243,8 +243,9 @@ class MarketScanner:
                         token_id = clob_token_ids[i] if i < len(clob_token_ids) else None
                         if isinstance(token_id, str):
                             import re as _re
-                            m = _re.search(r'0x[0-9a-fA-F]{10,}', token_id)
-                            token_id = m.group(0) if m else None
+                            # Token IDs are hex (0x...) or long decimals - strip garbage prefix
+                            m = _re.search(r'(0x[0-9a-fA-F]+|\d{10,})', token_id)
+                            token_id = m.group(1) if m else token_id.strip()
                         if name_l == "yes":
                             yes_price = price
                             yes_token_id = token_id
