@@ -326,6 +326,14 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
     db_path = "trades.db"
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
 
+    # Startup diagnostics
+    if anthropic_key:
+        masked = anthropic_key[:10] + "..." + anthropic_key[-4:]
+        print(f"  Claude API key: {masked} (length={len(anthropic_key)})")
+    else:
+        print("  WARNING: ANTHROPIC_API_KEY is empty! Claude estimates will fail.")
+    print(f"  All env vars with 'ANTHROPIC': {[k for k in os.environ if 'ANTHROPIC' in k.upper()]}")
+
     risk_mgr = RiskManager(db_path=db_path)
     executor = Executor(paper=paper)
     edge_calc = EdgeCalculator(bankroll=10.0)

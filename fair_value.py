@@ -413,7 +413,8 @@ class FairValueEngine:
                             await asyncio.sleep(wait)
                             continue
                         if r.status != 200:
-                            logger.warning(f"Claude API error: {r.status}")
+                            body = await r.text()
+                            logger.warning(f"Claude API error: {r.status} | {body[:200]}")
                             return None
                         resp = await r.json(content_type=None)
                         text = resp["content"][0]["text"].strip()
