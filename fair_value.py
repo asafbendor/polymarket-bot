@@ -35,7 +35,8 @@ Output Format: Return ONLY a JSON object, no other text:
 class FairValueEngine:
     def __init__(self, session: aiohttp.ClientSession, anthropic_api_key: str = ""):
         self.session = session
-        self.anthropic_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        raw_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        self.anthropic_key = raw_key.strip().lstrip("=")
         # Limit concurrent Claude calls to avoid 429 rate limits
         self._claude_sem = asyncio.Semaphore(3)
 

@@ -324,7 +324,7 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
         await asyncio.sleep(5)
 
     db_path = "trades.db"
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip().lstrip("=")
 
     # Startup diagnostics
     if anthropic_key:
