@@ -160,9 +160,9 @@ class Executor:
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
 
-            # Polymarket min order = $1. Ensure shares × price >= $1
+            # Polymarket requires min 5 shares AND min $1 order
             import math
-            min_usd = max(opp.position_size, 1.0)
+            min_usd = max(opp.position_size, 1.0, 5 * limit_price)
             shares = math.ceil(min_usd / limit_price * 100) / 100
 
             order_args = OrderArgs(
