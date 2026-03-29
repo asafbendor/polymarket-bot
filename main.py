@@ -333,13 +333,9 @@ async def order_followup_loop(executor: Executor, risk_mgr: RiskManager):
                 to_remove.append(order_id)
 
             else:
-                # Still open — cancel if too old
+                # Still open — leave it, Polymarket will expire it naturally
                 age = asyncio.get_event_loop().time() - info.get("placed_at", 0)
-                if age > ORDER_CHECK_INTERVAL * 2:
-                    logger.info(f"Order too old, cancelling: {order_id}")
-                    await executor.cancel_order(order_id)
-                    risk_mgr.update_trade_status(order_id, "cancelled")
-                    to_remove.append(order_id)
+                logger.info(f"Order still open: {order_id[:20]}... age={age/3600:.1f}h")
 
         for oid in to_remove:
             pending_orders.pop(oid, None)
