@@ -130,12 +130,13 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # token_id from Gamma contains garbage (\t, = etc.) — extract hex/decimal
-        import re as _re
+        # token_id from Gamma contains garbage chars — split on non-alnum to find the real token
         raw_token = str(token_id)
-        m = _re.search(r'0x[0-9a-fA-F]+|\d{10,}', raw_token)
-        token_id = m.group(0) if m else raw_token
-        logger.warning(f"[LIVE] token_id raw={repr(raw_token[:30])} clean={token_id[:20]}")
+        import re as _re
+        parts = _re.split(r'[^0-9a-fA-Fx]+', raw_token)
+        candidates = [p for p in parts if len(p) >= 10]
+        token_id = candidates[0] if candidates else raw_token
+        logger.warning(f"[LIVE] token BEFORE={repr(raw_token[:40])} AFTER={token_id[:40]}")
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
