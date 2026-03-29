@@ -68,8 +68,10 @@ def setup_logging(verbose: bool = False):
                             DbLogHandler(),
                         ])
     # Quiet noisy libraries
-    for lib in ["aiohttp", "asyncio"]:
+    for lib in ["aiohttp", "asyncio", "httpx", "httpcore", "hpack"]:
         logging.getLogger(lib).setLevel(logging.WARNING)
+    # Suppress py_clob_client HTTP request logs
+    logging.getLogger("py_clob_client").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
