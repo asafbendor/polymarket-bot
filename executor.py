@@ -160,8 +160,9 @@ class Executor:
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
 
-            # Calculate number of shares (shares = USD / price)
-            shares = round(opp.position_size / limit_price, 2)
+            # Calculate shares - round UP to ensure cost >= position_size (min $1)
+            import math
+            shares = math.ceil(opp.position_size / limit_price * 100) / 100
 
             order_args = OrderArgs(
                 token_id=token_id,
