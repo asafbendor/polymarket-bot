@@ -136,6 +136,16 @@ class RiskManager:
         conn.close()
         return row["realized_pnl"] if row else 0.0
 
+    def _market_already_open(self, condition_id: str) -> bool:
+        conn = db_adapter.connect()
+        c = conn.cursor()
+        c.execute(db_adapter.adapt(
+            "SELECT COUNT(*) as n FROM trades WHERE condition_id=? AND status IN ('pending','filled')"),
+            (condition_id,))
+        row = db_adapter.fetchone(c)
+        conn.close()
+        return (row["n"] if row else 0) > 0
+
     def get_open_categories(self) -> set:
         conn = db_adapter.connect()
         c = conn.cursor()
@@ -186,11 +196,15 @@ class RiskManager:
         if open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Max open positions reached: {open_pos}/{MAX_OPEN_POSITIONS}"
 
+        # Never bet on the same market twice
+        if self._market_already_open(opp.condition_id):
+            return False, f"Already have open position on this market"
+
         # Enforce 1-per-category only for the 5 primary categories
         PRIMARY_CATEGORIES = {"crypto", "sports", "weather", "political", "economic"}
         if opp.category in PRIMARY_CATEGORIES and opp.category in open_cats:
             return False, f"Already have open position in {opp.category}"
-        # "other" (and any unlisted category) has no duplicate restriction — fills remaining slots
+        # "other" (and any unlisted category) fills remaining slots, but never same market twice
 
         if opp.position_size > MAX_TRADE_SIZE:
             return False, f"Position size ${opp.position_size:.2f} > max ${MAX_TRADE_SIZE:.2f}"
