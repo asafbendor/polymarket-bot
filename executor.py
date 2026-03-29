@@ -130,13 +130,13 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # token_id from Gamma contains garbage (TAB, =, etc.) before the real value
+        # token_id from Gamma has pattern '\t=0x168...' — split on = to get real value
         s = str(token_id)
-        if '0x' in s:
-            token_id = '0x' + s.split('0x', 1)[1]
-        else:
-            token_id = ''.join(c for c in s if c.isdigit())
-        logger.warning(f"[LIVE] token_id cleaned: {token_id[:60]}")
+        if '=' in s:
+            s = s.split('=', 1)[-1]
+        token_id = s.strip()
+        print(f"[EXECUTOR] token_id final: {repr(token_id[:50])}", flush=True)
+        logger.warning(f"[LIVE] token_id final: {repr(token_id[:50])}")
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
