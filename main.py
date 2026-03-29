@@ -252,8 +252,7 @@ async def run_scan_cycle(
         link = f'<a href="{poly_url}">Polymarket</a>' if poly_url else ''
         if result.get("status") == "error":
             logger.error(f"Order FAILED: {result.get('message','')}")
-            send_telegram(f"Order FAILED: {opp.question[:60]}\nError: {result.get('message','')[:100]}")
-            continue  # don't log failed orders to DB or count budget
+            continue  # don't log failed orders to DB, don't send Telegram
 
         # Log to DB only on success
         trade_id = risk_mgr.log_trade(

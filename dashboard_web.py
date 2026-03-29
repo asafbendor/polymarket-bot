@@ -333,19 +333,20 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   @keyframes spin { to { transform: rotate(360deg); } }
 
   @media (max-width: 640px) {
-    main { padding: 12px; }
-    #trades-table thead { display: none; }
-    #trades-table tr { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 10px 12px; }
-    #trades-table td { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border: none; font-size: 13px; }
-    #trades-table td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; margin-right: 8px; min-width: 55px; }
-    #trades-table td[data-label="Market"] { display: block; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-    #trades-table td[data-label="Market"]::before { display: none; }
-    #trades-table td[data-label="Fair"] { display: none; }
-    .truncate { max-width: 100%; font-size: 13px; font-weight: 500; }
+    main { padding: 10px; }
     .kpi-row { grid-template-columns: 1fr 1fr; }
     .grid-2 { grid-template-columns: 1fr; }
     header h1 { font-size: 15px; }
+    #trades-table { display: none; }
+    #trades-cards { display: block; }
   }
+  #trades-cards { display: none; }
+  .trade-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .trade-card-title { font-size: 13px; font-weight: 600; color: var(--blue); margin-bottom: 8px; line-height: 1.4; }
+  .trade-card-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+  .trade-card-row:last-child { border-bottom: none; }
+  .trade-card-label { color: var(--muted); }
+  .trade-card-val { font-weight: 500; }
 </style>
 </head>
 <body>
@@ -418,6 +419,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <tbody id="trades-body">
           <tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">Loading...</td></tr>
         </tbody>
+      </table>
+      <div id="trades-cards"></div>
+      <table style="display:none">
       </table>
     </div>
   </div>
@@ -496,10 +500,33 @@ async function loadChart() {
 async function loadTrades() {
   const rows = await fetch('/api/trades').then(r => r.json());
   const tbody = document.getElementById('trades-body');
+  const cards = document.getElementById('trades-cards');
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">No trades yet — waiting for next scan...</td></tr>';
+    cards.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No trades yet</div>';
     return;
   }
+  // Mobile cards
+  cards.innerHTML = rows.map(r => {
+    const dirBadge = r.direction === 'YES' ? '<span class="badge-yes">YES</span>' : '<span class="badge-no">NO</span>';
+    const entry = r.limit_price ? (r.limit_price * 100).toFixed(1) + 'c' : '-';
+    const statusCls = 'status-' + r.status;
+    const pnl = r.pnl !== 0 ? fmt$(r.pnl) : '-';
+    const title = r.polymarket_url
+      ? `<a href="${r.polymarket_url}" target="_blank" style="color:var(--blue);text-decoration:none">${r.question||''}</a>`
+      : (r.question||'');
+    return `<div class="trade-card">
+      <div class="trade-card-title">${title}</div>
+      <div class="trade-card-row"><span class="trade-card-label">Direction</span><span>${dirBadge}</span></div>
+      <div class="trade-card-row"><span class="trade-card-label">Entry</span><span class="trade-card-val">${entry}</span></div>
+      <div class="trade-card-row"><span class="trade-card-label">Edge</span><span class="trade-card-val">${fmtPct(r.edge_pct)}</span></div>
+      <div class="trade-card-row"><span class="trade-card-label">Size</span><span class="trade-card-val">$${(r.position_size||0).toFixed(2)}</span></div>
+      <div class="trade-card-row"><span class="trade-card-label">Ends</span><span class="trade-card-val">${r.end_date_str||'-'}</span></div>
+      <div class="trade-card-row"><span class="trade-card-label">Status</span><span class="${statusCls}">${r.status}</span></div>
+      <div class="trade-card-row"><span class="trade-card-label">P&L</span><span class="${colorClass(r.pnl)}">${pnl}</span></div>
+    </div>`;
+  }).join('');
+  // Desktop table
   tbody.innerHTML = rows.map(r => {
     const pnl = r.pnl;
     const pnlStr = pnl !== 0 ? fmt$(pnl) : '-';
