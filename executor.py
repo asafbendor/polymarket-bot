@@ -130,13 +130,24 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # token_id from Gamma has pattern '\t=0x168...' — split on = to get real value
-        s = str(token_id)
-        if '=' in s:
-            s = s.split('=', 1)[-1]
-        token_id = s.strip()
-        print(f"[EXECUTOR] token_id final: {repr(token_id[:50])}", flush=True)
-        logger.warning(f"[LIVE] token_id final: {repr(token_id[:50])}")
+        # Gamma API clobTokenIds are WRONG (proxy addresses, not CLOB token IDs)
+        # Fetch real token_id (long decimal integer) from CLOB REST API
+        import urllib.request as _ur, json as _js
+        try:
+            url = f"https://clob.polymarket.com/markets/{opp.condition_id}"
+            req = _ur.Request(url, headers={"Accept": "application/json"})
+            data = _js.loads(_ur.urlopen(req, timeout=10).read())
+            for tok in (data.get("tokens") or []):
+                if str(tok.get("outcome", "")).upper() == opp.direction:
+                    token_id = str(tok["token_id"])
+                    logger.warning(f"[LIVE] CLOB token_id OK: {token_id[:30]}")
+                    break
+            else:
+                logger.warning(f"[LIVE] CLOB tokens: {data.get('tokens')}")
+                return {"order_id": "", "status": "error", "message": f"No {opp.direction} token in CLOB market"}
+        except Exception as e:
+            logger.warning(f"[LIVE] CLOB market fetch FAILED: {type(e).__name__}: {e}")
+            return {"order_id": "", "status": "error", "message": f"CLOB fetch failed: {e}"}
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
