@@ -421,8 +421,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         </tbody>
       </table>
       <div id="trades-cards"></div>
-      <table style="display:none">
-      </table>
     </div>
   </div>
 </main>
