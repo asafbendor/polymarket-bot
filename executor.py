@@ -130,10 +130,20 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # token_id from Gamma API contains garbage chars (\t, =, etc.)
-        # Keep only valid hex/decimal characters
-        token_id = ''.join(c for c in str(token_id) if c in '0123456789abcdefABCDEFx')
-        logger.warning(f"[LIVE] clean token_id: {token_id[:20]}...")
+        # Fetch clean token_id directly from CLOB REST API
+        import urllib.request as _ur, json as _js
+        try:
+            raw = _ur.urlopen(
+                f"https://clob.polymarket.com/markets/{opp.condition_id}", timeout=10
+            ).read()
+            mkt = _js.loads(raw)
+            for tok in (mkt.get("tokens") or []):
+                if str(tok.get("outcome", "")).upper() == opp.direction:
+                    token_id = tok["token_id"]
+                    break
+            logger.warning(f"[LIVE] CLOB token_id: {token_id}")
+        except Exception as e:
+            logger.warning(f"[LIVE] CLOB fetch failed, using raw token: {e}")
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
