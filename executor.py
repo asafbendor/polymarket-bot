@@ -130,26 +130,10 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # Always fetch fresh token_id from CLOB API — Gamma tokens are dirty
-        try:
-            loop = asyncio.get_event_loop()
-            clob_market = await loop.run_in_executor(
-                None,
-                lambda: self._client.get_market(opp.condition_id)
-            )
-            for tok in (clob_market.get("tokens") or []):
-                if str(tok.get("outcome", "")).upper() == opp.direction:
-                    token_id = tok["token_id"]
-                    logger.warning(f"[LIVE] CLOB token_id fetched: {token_id[:20]}...")
-                    break
-        except Exception as e:
-            logger.warning(f"[LIVE] CLOB token fetch failed, using Gamma token: {e}")
-            # fallback: clean Gamma token with regex
-            import re as _re
-            if isinstance(token_id, str):
-                m = _re.search(r'(0x[0-9a-fA-F]+|\d{10,})', token_id)
-                if m:
-                    token_id = m.group(1)
+        # token_id from Gamma API contains garbage chars (\t, =, etc.)
+        # Keep only valid hex/decimal characters
+        token_id = ''.join(c for c in str(token_id) if c in '0123456789abcdefABCDEFx')
+        logger.warning(f"[LIVE] clean token_id: {token_id[:20]}...")
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
