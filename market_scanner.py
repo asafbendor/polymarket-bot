@@ -258,11 +258,16 @@ class MarketScanner:
                     if tokens and isinstance(tokens[0], dict):
                         for tok in tokens:
                             outcome = str(tok.get("outcome", "")).lower()
+                            tid = tok.get("token_id") or tok.get("tokenId") or ""
+                            if isinstance(tid, str):
+                                import re as _re2
+                                m2 = _re2.search(r'0x[0-9a-fA-F]+|\d{10,}', tid)
+                                tid = m2.group(0) if m2 else tid.strip()
                             if outcome == "yes":
-                                yes_token_id = tok.get("token_id") or tok.get("tokenId")
+                                yes_token_id = tid
                                 yes_price = float(tok.get("price", 0.5))
                             elif outcome == "no":
-                                no_token_id = tok.get("token_id") or tok.get("tokenId")
+                                no_token_id = tid
                                 no_price = float(tok.get("price", 0.5))
 
                 # Sanity check: prices should sum to ~1
