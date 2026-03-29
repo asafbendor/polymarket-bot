@@ -160,7 +160,10 @@ class MarketScanner:
                                          "storm", "celsius", "fahrenheit"]):
             return "weather"
         if any(k in combined for k in ["gdp", "inflation", "fed", "interest rate", "economic",
-                                         "unemployment", "cpi", "recession", "tariff", "trade war"]):
+                                         "unemployment", "cpi", "recession", "tariff", "trade war",
+                                         "stock", "market cap", "nasdaq", "s&p", "dow", "bond",
+                                         "rate cut", "rate hike", "treasury", "deficit", "debt",
+                                         "oil price", "gold price", "commodity", "earnings"]):
             return "economic"
         if any(k in combined for k in ["election", "president", "senate", "congress", "vote",
                                          "poll", "minister", "parliament", "political"]):
