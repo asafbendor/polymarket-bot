@@ -332,14 +332,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  @media (max-width: 640px) {
-    main { padding: 10px; }
-    .kpi-row { grid-template-columns: 1fr 1fr; }
-    .grid-2 { grid-template-columns: 1fr; }
-    header h1 { font-size: 15px; }
-    #trades-table { display: none; }
-    #trades-cards { display: block; }
-  }
   #trades-cards { display: none; }
   .trade-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
   .trade-card-title { font-size: 13px; font-weight: 600; color: var(--blue); margin-bottom: 8px; line-height: 1.4; }
@@ -347,6 +339,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .trade-card-row:last-child { border-bottom: none; }
   .trade-card-label { color: var(--muted); }
   .trade-card-val { font-weight: 500; }
+  @media (max-width: 640px) {
+    main { padding: 10px; }
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .grid-2 { grid-template-columns: 1fr; }
+    header h1 { font-size: 15px; }
+    #trades-table { display: none !important; }
+    #trades-cards { display: block !important; }
+  }
 </style>
 </head>
 <body>
