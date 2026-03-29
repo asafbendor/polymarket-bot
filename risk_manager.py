@@ -180,16 +180,14 @@ class RiskManager:
         if opp.hours_left > max_hours:
             return False, f"Resolves too far: {opp.hours_left:.0f}h > {max_hours}h max"
 
-        if opp.category not in DATA_DRIVEN_CATEGORIES:
-            return False, f"Category '{opp.category}' not supported — skipping"
-
-        # Block duplicate category only when we already have 5 positions (all slots filled)
         open_cats = self.get_open_categories()
-        if opp.category in open_cats and open_pos >= MAX_OPEN_POSITIONS:
-            return False, f"Already have open position in {opp.category}"
+        open_pos = self.get_open_positions()
 
         if open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Max open positions reached: {open_pos}/{MAX_OPEN_POSITIONS}"
+
+        if opp.category in open_cats:
+            return False, f"Already have open position in {opp.category}"
 
         if opp.position_size > MAX_TRADE_SIZE:
             return False, f"Position size ${opp.position_size:.2f} > max ${MAX_TRADE_SIZE:.2f}"
