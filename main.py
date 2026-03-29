@@ -174,6 +174,10 @@ async def run_scan_cycle(
 
     got_fv = sum(1 for _, fv in all_results if fv is not None)
     logger.info(f"Fair values obtained: {got_fv}/{len(all_results)}")
+    # Log per-category breakdown
+    from collections import Counter
+    cat_counts = Counter(m.get("category") for m, fv in all_results if fv is not None)
+    logger.info(f"Fair values by category: {dict(cat_counts)}")
 
     # Phase 3: Score all results, collect candidates sorted by edge
     budget_remaining = risk_mgr.get_budget_remaining()
