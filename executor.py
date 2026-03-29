@@ -130,24 +130,22 @@ class Executor:
         if not token_id:
             return {"order_id": "", "status": "error", "message": "No token_id for this direction"}
 
-        # Gamma API clobTokenIds are WRONG (proxy addresses, not CLOB token IDs)
-        # Fetch real token_id (long decimal integer) from CLOB REST API
-        import urllib.request as _ur, json as _js
+        # Fetch real token_id from CLOB client (authenticated)
         try:
-            url = f"https://clob.polymarket.com/markets/{opp.condition_id}"
-            req = _ur.Request(url, headers={"Accept": "application/json"})
-            data = _js.loads(_ur.urlopen(req, timeout=10).read())
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(None, lambda: self._client.get_market(opp.condition_id))
+            found = False
             for tok in (data.get("tokens") or []):
                 if str(tok.get("outcome", "")).upper() == opp.direction:
                     token_id = str(tok["token_id"])
-                    logger.warning(f"[LIVE] CLOB token_id OK: {token_id[:30]}")
+                    logger.warning(f"[LIVE] CLOB token_id: {token_id[:40]}")
+                    found = True
                     break
-            else:
-                logger.warning(f"[LIVE] CLOB tokens: {data.get('tokens')}")
-                return {"order_id": "", "status": "error", "message": f"No {opp.direction} token in CLOB market"}
+            if not found:
+                return {"order_id": "", "status": "error", "message": f"No {opp.direction} token found"}
         except Exception as e:
-            logger.warning(f"[LIVE] CLOB market fetch FAILED: {type(e).__name__}: {e}")
-            return {"order_id": "", "status": "error", "message": f"CLOB fetch failed: {e}"}
+            logger.warning(f"[LIVE] get_market failed: {e}")
+            return {"order_id": "", "status": "error", "message": f"get_market failed: {e}"}
 
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
