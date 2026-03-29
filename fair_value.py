@@ -102,6 +102,16 @@ class FairValueEngine:
             "london":      (51.51, -0.13),
             "paris":       (48.85, 2.35),
             "tokyo":       (35.68, 139.69),
+            "denver":      (39.74, -104.98),
+            "seattle":     (47.61, -122.33),
+            "boston":      (42.36, -71.06),
+            "dallas":      (32.78, -96.80),
+            "atlanta":     (33.75, -84.39),
+            "phoenix":     (33.45, -112.07),
+            "berlin":      (52.52, 13.40),
+            "sydney":      (-33.87, 151.21),
+            "toronto":     (43.65, -79.38),
+            "dubai":       (25.20, 55.27),
         }
         lat, lon = 40.71, -74.01  # default NYC
         for city, coords in city_coords.items():

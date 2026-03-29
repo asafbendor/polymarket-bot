@@ -175,8 +175,10 @@ class RiskManager:
         if opp.hours_left < MIN_HOURS_TO_RESOLUTION:
             return False, f"Too close to resolution: {opp.hours_left:.1f}h left"
 
-        if opp.hours_left > MAX_HOURS_TO_RESOLUTION:
-            return False, f"Resolves too far: {opp.hours_left:.0f}h > {MAX_HOURS_TO_RESOLUTION}h max"
+        # Sports and weather can go up to 14 days (games/forecasts)
+        max_hours = MAX_HOURS_TO_RESOLUTION * 2 if opp.category in ("sports", "weather") else MAX_HOURS_TO_RESOLUTION
+        if opp.hours_left > max_hours:
+            return False, f"Resolves too far: {opp.hours_left:.0f}h > {max_hours}h max"
 
         if opp.category not in DATA_DRIVEN_CATEGORIES:
             return False, f"Category '{opp.category}' not supported — skipping"
