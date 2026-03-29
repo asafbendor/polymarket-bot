@@ -13,7 +13,7 @@ DAILY_BUDGET = 5.0
 MAX_TRADE_SIZE = 1.0
 MAX_OPEN_POSITIONS = 5
 MIN_HOURS_TO_RESOLUTION = 6
-MAX_HOURS_TO_RESOLUTION = 168  # only trade markets resolving within 7 days
+MAX_HOURS_TO_RESOLUTION = 504  # only trade markets resolving within 21 days
 DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather", "political", "economic", "other"}
 STOP_LOSS_THRESHOLD = -8.0
 
@@ -183,11 +183,11 @@ class RiskManager:
         if opp.category not in DATA_DRIVEN_CATEGORIES:
             return False, f"Category '{opp.category}' not supported — skipping"
 
+        # Block duplicate category only when we already have 5 positions (all slots filled)
         open_cats = self.get_open_categories()
-        if opp.category in open_cats:
+        if opp.category in open_cats and open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Already have open position in {opp.category}"
 
-        open_pos = self.get_open_positions()
         if open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Max open positions reached: {open_pos}/{MAX_OPEN_POSITIONS}"
 
