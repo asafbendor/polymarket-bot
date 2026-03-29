@@ -143,10 +143,11 @@ async def run_scan_cycle(
     MAX_CLAUDE_MARKETS = 20
     non_claude_categories = {"crypto", "sports", "weather"}
 
-    # Sort: non-Claude categories first, then by liquidity desc
+    # Sort: non-Claude first, then fewest hours left (soonest resolution), then by liquidity
     def sort_key(m):
         is_fast = m.get("category") in non_claude_categories
-        return (0 if is_fast else 1, -m.get("liquidity", 0))
+        hours = m.get("hours_left", 9999)
+        return (0 if is_fast else 1, hours, -m.get("liquidity", 0))
 
     sorted_markets = sorted(markets, key=sort_key)
 

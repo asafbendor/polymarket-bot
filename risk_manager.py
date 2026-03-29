@@ -13,7 +13,7 @@ DAILY_BUDGET = 5.0
 MAX_TRADE_SIZE = 1.0
 MAX_OPEN_POSITIONS = 5
 MIN_HOURS_TO_RESOLUTION = 6
-MAX_HOURS_TO_RESOLUTION = 720  # only trade markets resolving within 30 days
+MAX_HOURS_TO_RESOLUTION = 168  # only trade markets resolving within 7 days
 DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather", "political", "economic"}
 STOP_LOSS_THRESHOLD = -8.0
 
