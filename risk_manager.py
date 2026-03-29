@@ -186,8 +186,11 @@ class RiskManager:
         if open_pos >= MAX_OPEN_POSITIONS:
             return False, f"Max open positions reached: {open_pos}/{MAX_OPEN_POSITIONS}"
 
-        if opp.category in open_cats:
+        # Enforce 1-per-category only for the 5 primary categories
+        PRIMARY_CATEGORIES = {"crypto", "sports", "weather", "political", "economic"}
+        if opp.category in PRIMARY_CATEGORIES and opp.category in open_cats:
             return False, f"Already have open position in {opp.category}"
+        # "other" (and any unlisted category) has no duplicate restriction — fills remaining slots
 
         if opp.position_size > MAX_TRADE_SIZE:
             return False, f"Position size ${opp.position_size:.2f} > max ${MAX_TRADE_SIZE:.2f}"
