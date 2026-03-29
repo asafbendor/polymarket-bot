@@ -247,7 +247,9 @@ class Executor:
                 None,
                 lambda: self._client.get_order(order_id)
             )
-            status = resp.get("status", "unknown").lower()
+            if not resp or not isinstance(resp, dict):
+                return {"status": "open", "fill_price": 0.0, "paper": False}
+            status = resp.get("status", "open").lower()
             fill_price = float(resp.get("avg_price", 0) or 0)
             return {"status": status, "fill_price": fill_price, "paper": False}
         except Exception as e:
