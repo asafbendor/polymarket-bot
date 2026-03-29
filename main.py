@@ -325,15 +325,14 @@ async def order_followup_loop(executor: Executor, risk_mgr: RiskManager):
             result = await executor.check_order_status(order_id)
             status = result.get("status", "unknown")
 
-            if status in ("filled", "MATCHED"):
+            if status in ("filled", "matched", "MATCHED"):
                 fill_price = result.get("fill_price", 0.0)
                 opp = info["opp"]
-                # Rough P&L estimate (actual P&L only known at resolution)
                 logger.info(f"Order filled: {order_id} @ {fill_price:.3f}")
                 risk_mgr.update_trade_status(order_id, "filled", fill_price)
                 to_remove.append(order_id)
 
-            elif status in ("cancelled", "CANCELLED", "UNMATCHED"):
+            elif status in ("cancelled", "CANCELLED", "unmatched", "UNMATCHED"):
                 logger.info(f"Order cancelled/expired: {order_id}")
                 risk_mgr.update_trade_status(order_id, "cancelled")
                 to_remove.append(order_id)
