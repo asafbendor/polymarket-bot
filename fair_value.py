@@ -39,6 +39,10 @@ class FairValueEngine:
         self.anthropic_key = raw_key.strip().lstrip("=")
         # Limit concurrent Claude calls to avoid 429 rate limits
         self._claude_sem = asyncio.Semaphore(3)
+        # Cache Claude results: condition_id -> (fair_value, timestamp)
+        # Valid for 6 hours to avoid repeated expensive API calls
+        self._claude_cache: dict = {}
+        self._cache_ttl = 6 * 3600  # 6 hours in seconds
 
     # ------------------------------------------------------------------
     # Entry point
@@ -388,6 +392,16 @@ class FairValueEngine:
             logger.debug("No Anthropic API key — skipping Claude estimate")
             return None
 
+        # Cache check — skip Claude if estimated within last 6 hours
+        import time as _time
+        cid = market.get("condition_id", market.get("question", ""))
+        cached = self._claude_cache.get(cid)
+        if cached:
+            val, ts = cached
+            if _time.time() - ts < self._cache_ttl:
+                return val
+            del self._claude_cache[cid]
+
         question = market.get("question", "")
         current_price = market.get("yes_price", 0.5)
 
@@ -442,13 +456,17 @@ class FairValueEngine:
                                 logger.debug(f"Claude low confidence ({confidence:.2f}), skipping")
                                 return None
                             val = float(data["fair_value_percent"])
-                            return round(max(1, min(99, val)) / 100.0, 3)
+                            result = round(max(1, min(99, val)) / 100.0, 3)
+                            self._claude_cache[cid] = (result, _time.time())
+                            return result
                         except Exception:
                             # Fallback: extract any number from text
                             num_match = re.search(r"\d+\.?\d*", text)
                             if num_match:
                                 val = float(num_match.group())
-                                return round(max(1, min(99, val)) / 100.0, 3)
+                                result = round(max(1, min(99, val)) / 100.0, 3)
+                                self._claude_cache[cid] = (result, _time.time())
+                                return result
                         return None
                 except Exception as e:
                     if attempt < 2:
