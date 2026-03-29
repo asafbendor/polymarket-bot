@@ -38,8 +38,18 @@ class Executor:
             from py_clob_client.clob_types import ApiCreds
             from py_clob_client.constants import POLYGON
 
-            private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
-            proxy_address = os.getenv("POLYMARKET_PROXY_ADDRESS")
+            def clean_env(val):
+                if not val:
+                    return val
+                s = str(val)
+                if '=' in s:
+                    s = s.split('=', 1)[-1]
+                return s.strip()
+
+            private_key = clean_env(os.getenv("POLYMARKET_PRIVATE_KEY"))
+            proxy_address = clean_env(os.getenv("POLYMARKET_PROXY_ADDRESS"))
+
+            logger.warning(f"[LIVE] proxy_address: {proxy_address}")
 
             if not private_key:
                 raise ValueError("POLYMARKET_PRIVATE_KEY not set in .env")
