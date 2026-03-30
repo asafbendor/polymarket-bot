@@ -180,7 +180,7 @@ def api_trades():
             status, pnl, paper, reason,
             condition_id, end_date, slug, market_url
         FROM trades
-        WHERE status != 'error'
+        WHERE status NOT IN ('error', 'cancelled')
         ORDER BY timestamp DESC
         LIMIT 100
     """)
