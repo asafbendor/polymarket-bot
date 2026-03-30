@@ -39,8 +39,11 @@ RESOLUTION_CHECK_INTERVAL = 900  # 15 minutes
 # Logging
 # ------------------------------------------------------------------
 class DbLogHandler(logging.Handler):
-    """Writes log records to bot_log table in DB (for dashboard)."""
+    """Writes WARNING+ log records to bot_log table in DB (for dashboard).
+    INFO-level goes to file/stdout only — avoids flooding PostgreSQL with thousands of rows."""
     def emit(self, record):
+        if record.levelno < logging.WARNING:
+            return  # skip INFO/DEBUG — too noisy for DB
         try:
             import db_adapter
             msg = self.format(record)
@@ -49,7 +52,6 @@ class DbLogHandler(logging.Handler):
             c.execute(db_adapter.adapt(
                 "INSERT INTO bot_log (timestamp, level, message) VALUES (?,?,?)"
             ), (datetime.now(timezone.utc).isoformat(), record.levelname, msg[:500]))
-            # Keep only last 200 rows
             c.execute(db_adapter.adapt(
                 "DELETE FROM bot_log WHERE id NOT IN (SELECT id FROM bot_log ORDER BY id DESC LIMIT 200)"
             ))
@@ -57,6 +59,24 @@ class DbLogHandler(logging.Handler):
             conn.close()
         except Exception:
             pass  # never let logging crash the bot
+
+
+# Helper to force-write an INFO line to bot_log (for key events like scan summary, bets placed)
+def log_to_db(message: str):
+    try:
+        import db_adapter
+        conn = db_adapter.connect()
+        c = conn.cursor()
+        c.execute(db_adapter.adapt(
+            "INSERT INTO bot_log (timestamp, level, message) VALUES (?,?,?)"
+        ), (datetime.now(timezone.utc).isoformat(), "INFO", message[:500]))
+        c.execute(db_adapter.adapt(
+            "DELETE FROM bot_log WHERE id NOT IN (SELECT id FROM bot_log ORDER BY id DESC LIMIT 200)"
+        ))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def setup_logging(verbose: bool = False):
@@ -275,8 +295,14 @@ async def run_scan_cycle(
                 f"{link}"
             )
 
-        if result.get("order_id"):
-            pending_orders[result["order_id"]] = {
+        order_id = result.get("order_id", "")
+        log_to_db(
+            f"{'LIVE' if not paper else 'PAPER'} BET: {opp.direction} ${opp.position_size:.2f} "
+            f"@ {limit_price:.1%} | edge={opp.edge:+.1%} | "
+            f"'{opp.question[:50]}' | order={order_id[:16] or 'no-id'}"
+        )
+        if order_id:
+            pending_orders[order_id] = {
                 "trade_id": trade_id,
                 "opp": opp,
                 "placed_at": asyncio.get_event_loop().time(),
@@ -285,14 +311,16 @@ async def run_scan_cycle(
         trades_attempted += 1
         await asyncio.sleep(0.5)
 
-    # Summary
-    logger.info(
+    # Summary — force-write to DB so dashboard log always shows scan results
+    summary = (
         f"Scan done: {total_markets} markets | "
         f"{len(candidates)} candidates | "
-        f"{opportunities_found} above edge | "
         f"{trades_attempted} placed"
     )
+    logger.info(summary)
     logger.info(risk_mgr.status_line())
+    log_to_db(summary)
+    log_to_db(risk_mgr.status_line())
 
 
 # ------------------------------------------------------------------
