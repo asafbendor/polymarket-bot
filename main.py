@@ -298,54 +298,84 @@ async def run_scan_cycle(
 # ------------------------------------------------------------------
 # Order follow-up loop
 # ------------------------------------------------------------------
-async def order_followup_loop(executor: Executor, risk_mgr: RiskManager):
-    """Check pending orders every ORDER_CHECK_INTERVAL seconds."""
-    # Load pending orders from DB on startup (survive restarts)
+async def _run_order_checks(executor: Executor, risk_mgr: RiskManager):
+    """Check all pending orders once — update status in DB."""
+    import db_adapter
+    # Reload pending orders from DB (catch any added since last check)
     try:
-        import db_adapter
         conn = db_adapter.connect()
         c = conn.cursor()
         c.execute(db_adapter.adapt(
-            "SELECT order_id FROM trades WHERE status='pending' AND order_id IS NOT NULL AND order_id != ''"
+            "SELECT order_id, timestamp FROM trades WHERE status='pending' "
+            "AND order_id IS NOT NULL AND order_id != ''"
         ))
-        rows = c.fetchall()
+        rows = db_adapter.fetchrows(c)
         conn.close()
         for row in rows:
-            oid = row[0] if isinstance(row, (list, tuple)) else row.get("order_id", row[0])
+            oid = row.get("order_id", "")
             if oid and oid not in pending_orders:
-                pending_orders[oid] = {"trade_id": None, "opp": None, "placed_at": 0}
-        if pending_orders:
-            logger.info(f"Loaded {len(pending_orders)} pending orders from DB")
+                pending_orders[oid] = {"trade_id": None, "opp": None, "placed_at": 0,
+                                        "db_timestamp": row.get("timestamp", "")}
     except Exception as e:
-        logger.debug(f"Could not load pending orders: {e}")
+        logger.debug(f"Could not reload pending orders: {e}")
 
-    while True:
-        await asyncio.sleep(ORDER_CHECK_INTERVAL)
+    if not pending_orders:
+        return
 
-        to_remove = []
-        for order_id, info in list(pending_orders.items()):
-            result = await executor.check_order_status(order_id)
-            status = result.get("status", "unknown")
+    logger.info(f"Order check: {len(pending_orders)} pending order(s)")
+    to_remove = []
+    now_utc = datetime.now(timezone.utc)
 
-            if status in ("filled", "matched", "MATCHED"):
-                fill_price = result.get("fill_price", 0.0)
-                opp = info["opp"]
-                logger.info(f"Order filled: {order_id} @ {fill_price:.3f}")
-                risk_mgr.update_trade_status(order_id, "filled", fill_price)
-                to_remove.append(order_id)
+    for order_id, info in list(pending_orders.items()):
+        result = await executor.check_order_status(order_id)
+        status = result.get("status", "unknown")
+        logger.info(f"  order {order_id[:20]}... → CLOB status={status}")
 
-            elif status in ("cancelled", "CANCELLED", "unmatched", "UNMATCHED"):
-                logger.info(f"Order cancelled/expired: {order_id}")
+        if status in ("filled", "matched", "MATCHED"):
+            fill_price = result.get("fill_price", 0.0)
+            logger.info(f"Order filled: {order_id[:20]}... @ {fill_price:.3f}")
+            risk_mgr.update_trade_status(order_id, "filled", fill_price)
+            to_remove.append(order_id)
+
+        elif status in ("cancelled", "CANCELLED", "unmatched", "UNMATCHED"):
+            logger.info(f"Order cancelled/expired: {order_id[:20]}...")
+            risk_mgr.update_trade_status(order_id, "cancelled")
+            to_remove.append(order_id)
+
+        else:
+            # Order still live on CLOB — check age, auto-expire after 48h
+            db_ts = info.get("db_timestamp", "")
+            age_hours = 0
+            if db_ts:
+                try:
+                    placed = datetime.fromisoformat(db_ts.replace("Z", "+00:00"))
+                    age_hours = (now_utc - placed).total_seconds() / 3600
+                except Exception:
+                    pass
+            logger.info(f"Order live on CLOB: {order_id[:20]}... age={age_hours:.1f}h (status={status})")
+            if age_hours > 48:
+                logger.warning(f"Auto-expiring stale order {order_id[:20]}... ({age_hours:.0f}h old)")
                 risk_mgr.update_trade_status(order_id, "cancelled")
                 to_remove.append(order_id)
 
-            else:
-                # Still open — leave it, Polymarket will expire it naturally
-                age = asyncio.get_event_loop().time() - info.get("placed_at", 0)
-                logger.debug(f"Order still open: {order_id[:20]}... age={age/3600:.1f}h")
+    for oid in to_remove:
+        pending_orders.pop(oid, None)
 
-        for oid in to_remove:
-            pending_orders.pop(oid, None)
+
+async def order_followup_loop(executor: Executor, risk_mgr: RiskManager):
+    """Check pending orders immediately on startup, then every ORDER_CHECK_INTERVAL seconds."""
+    # Run immediately on startup
+    try:
+        await _run_order_checks(executor, risk_mgr)
+    except Exception as e:
+        logger.error(f"Startup order check error: {e}")
+
+    while True:
+        await asyncio.sleep(ORDER_CHECK_INTERVAL)
+        try:
+            await _run_order_checks(executor, risk_mgr)
+        except Exception as e:
+            logger.error(f"Order followup error: {e}")
 
 
 # ------------------------------------------------------------------

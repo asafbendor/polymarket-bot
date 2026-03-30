@@ -369,7 +369,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <h1>Polymarket Bot</h1>
   <div style="display:flex;align-items:center;gap:12px">
     <span class="badge" id="mode-badge">PAPER</span>
-    <span class="refresh-info"><span class="spinner"></span><span id="countdown">10</span>s to refresh</span>
+    <span class="refresh-info"><span class="spinner"></span><span id="countdown">60</span>s to refresh</span>
   </div>
 </header>
 
@@ -605,11 +605,12 @@ async function loadLog() {
   box.scrollTop = box.scrollHeight;
 }
 
-let countdown = 10;
+const REFRESH_SEC = 60;
+let countdown = REFRESH_SEC;
 function tick() {
   countdown--;
   document.getElementById('countdown').textContent = countdown;
-  if (countdown <= 0) { countdown = 10; loadAll(); }
+  if (countdown <= 0) { countdown = REFRESH_SEC; loadAll(); }
 }
 
 async function loadAll() {
