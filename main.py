@@ -353,8 +353,9 @@ async def _run_order_checks(executor: Executor, risk_mgr: RiskManager):
                 except Exception:
                     pass
             logger.info(f"Order live on CLOB: {order_id[:20]}... age={age_hours:.1f}h (status={status})")
-            if age_hours > 48:
-                logger.warning(f"Auto-expiring stale order {order_id[:20]}... ({age_hours:.0f}h old)")
+            if age_hours > 12:
+                logger.warning(f"Cancelling stale order {order_id[:20]}... ({age_hours:.0f}h unfilled)")
+                await executor.cancel_order(order_id)
                 risk_mgr.update_trade_status(order_id, "cancelled")
                 to_remove.append(order_id)
 
