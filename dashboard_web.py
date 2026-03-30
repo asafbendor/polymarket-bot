@@ -460,7 +460,7 @@ function formatLocalTime(utc) {
 }
 
 async function loadStats() {
-  const d = await fetch('/api/stats').then(r => r.json());
+  const d = await fetch('/api/stats?_=' + Date.now()).then(r => r.json());
 
   // Total P&L (all-time)
   const pnl = d.total_pnl;
@@ -508,7 +508,7 @@ async function loadStats() {
 }
 
 async function loadChart() {
-  const rows = await fetch('/api/pnl').then(r => r.json());
+  const rows = await fetch('/api/pnl?_=' + Date.now()).then(r => r.json());
   const labels = rows.map(r => r.date.slice(5));
   const data   = rows.map(r => r.cumulative_pnl);
   if (pnlChart) { pnlChart.destroy(); }
@@ -531,7 +531,7 @@ async function loadChart() {
 }
 
 async function loadTrades() {
-  const rows = await fetch('/api/trades').then(r => r.json());
+  const rows = await fetch('/api/trades?_=' + Date.now()).then(r => r.json());
   const tbody = document.getElementById('trades-body');
   const cards = document.getElementById('trades-cards');
   if (!rows.length) {
@@ -588,7 +588,7 @@ async function loadTrades() {
 }
 
 async function loadLog() {
-  const d = await fetch('/api/log').then(r => r.json());
+  const d = await fetch('/api/log?_=' + Date.now()).then(r => r.json());
   const box = document.getElementById('log-box');
   box.innerHTML = d.lines.map(line => {
     let cls = '';
