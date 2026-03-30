@@ -302,16 +302,17 @@ class RiskManager:
             "UPDATE trades SET status=?, fill_price=?, pnl=? WHERE order_id=?"),
             (status, fill_price, pnl, order_id))
 
-        if status in ("cancelled", "expired") and pnl == 0:
+        if status in ("cancelled", "expired"):
             c.execute(db_adapter.adapt("""
                 UPDATE daily_stats SET
                     spent = MAX(0, spent - (SELECT position_size FROM trades WHERE order_id=?)),
                     open_positions = MAX(0, open_positions - 1)
                 WHERE date=?
             """), (order_id, self._today()))
-        elif status == "filled" and pnl != 0:
+        elif status in ("won", "lost"):
+            # Market resolved — book P&L to today (resolution date)
             c.execute(db_adapter.adapt(
-                "UPDATE daily_stats SET realized_pnl=realized_pnl+?, open_positions=MAX(0,open_positions-1) WHERE date=?"),
+                "UPDATE daily_stats SET realized_pnl=realized_pnl+? WHERE date=?"),
                 (pnl, self._today())
             )
         conn.commit()

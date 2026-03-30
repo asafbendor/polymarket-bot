@@ -105,30 +105,40 @@ def query_one(sql, params=()):
 def api_stats():
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    stats = query_one(
-        "SELECT spent, realized_pnl, open_positions FROM daily_stats WHERE date=?",
-        (today,)
-    ) or {"spent": 0, "realized_pnl": 0, "open_positions": 0}
+    # Daily budget spent (today only)
+    daily_stats = query_one(
+        "SELECT spent FROM daily_stats WHERE date=?", (today,)
+    ) or {"spent": 0}
 
-    total_trades = query_one(
-        "SELECT COUNT(*) as n FROM trades WHERE date(timestamp)=?", (today,)
+    # All-time cumulative P&L from resolved trades
+    total_pnl_row = query_one(
+        "SELECT COALESCE(SUM(pnl), 0) as total FROM trades WHERE status IN ('won', 'lost')"
+    ) or {"total": 0}
+
+    # All-time win rate
+    resolved_row = query_one(
+        "SELECT COUNT(*) as n FROM trades WHERE status IN ('won', 'lost')"
     ) or {"n": 0}
-
-    filled = query_one(
-        "SELECT COUNT(*) as n FROM trades WHERE status='filled' AND date(timestamp)=?", (today,)
+    won_row = query_one(
+        "SELECT COUNT(*) as n FROM trades WHERE status='won'"
     ) or {"n": 0}
-
-    winning = query_one(
-        "SELECT COUNT(*) as n FROM trades WHERE pnl>0 AND date(timestamp)=?", (today,)
-    ) or {"n": 0}
-
     win_rate = 0
-    if filled["n"] > 0:
-        win_rate = round(100 * winning["n"] / filled["n"], 1)
+    if resolved_row["n"] > 0:
+        win_rate = round(100 * won_row["n"] / resolved_row["n"], 1)
 
-    # Count actual open positions (pending trades, any date)
+    # Open positions = pending + filled (order placed but market not yet resolved)
     open_pos = query_one(
-        "SELECT COUNT(*) as n FROM trades WHERE status='pending'"
+        "SELECT COUNT(*) as n FROM trades WHERE status IN ('pending', 'filled')"
+    ) or {"n": 0}
+
+    # Active investment = $ currently deployed in open positions
+    active_inv_row = query_one(
+        "SELECT COALESCE(SUM(position_size), 0) as total FROM trades WHERE status IN ('pending', 'filled')"
+    ) or {"total": 0}
+
+    # Total trades all-time
+    total_trades = query_one(
+        "SELECT COUNT(*) as n FROM trades WHERE order_id IS NOT NULL AND order_id != ''"
     ) or {"n": 0}
 
     # Determine live mode: any non-paper trade exists
@@ -139,14 +149,16 @@ def api_stats():
 
     return jsonify({
         "date": today,
-        "spent": round(stats["spent"] or 0, 2),
-        "realized_pnl": round(stats["realized_pnl"] or 0, 2),
-        "budget_remaining": round(DAILY_BUDGET - (stats["spent"] or 0), 2),
+        "spent": round(daily_stats["spent"] or 0, 2),
+        "total_pnl": round(total_pnl_row["total"] or 0, 2),
+        "budget_remaining": round(DAILY_BUDGET - (daily_stats["spent"] or 0), 2),
         "daily_budget": DAILY_BUDGET,
         "open_positions": open_pos["n"],
         "max_positions": 5,
+        "active_investment": round(active_inv_row["total"] or 0, 2),
         "total_trades": total_trades["n"],
-        "filled_trades": filled["n"],
+        "resolved_trades": resolved_row["n"],
+        "won_trades": won_row["n"],
         "win_rate": win_rate,
         "is_live": is_live,
     })
@@ -317,6 +329,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .status-pending   { color: var(--yellow); }
   .status-paper     { color: var(--muted); }
   .status-cancelled { color: var(--red); }
+  .status-won       { color: var(--green); font-weight: 600; }
+  .status-lost      { color: var(--red); font-weight: 600; }
 
   .progress-wrap { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 8px; }
   .progress-bar  { height: 100%; border-radius: 4px; transition: width .4s; }
@@ -362,20 +376,20 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <main>
   <div class="kpi-row">
     <div class="kpi">
-      <div class="label">Daily P&L</div>
+      <div class="label">Total P&L</div>
       <div class="value neutral" id="kpi-pnl">-</div>
-      <div class="sub">realized today</div>
+      <div class="sub" id="kpi-pnl-sub">all time</div>
     </div>
     <div class="kpi">
       <div class="label">Budget Remaining</div>
       <div class="value neutral" id="kpi-budget">-</div>
-      <div class="sub">of $<span id="kpi-budget-total">10.00</span>/day</div>
+      <div class="sub">of $<span id="kpi-budget-total">5.00</span>/day</div>
       <div class="progress-wrap"><div class="progress-bar" id="budget-bar" style="width:100%;background:var(--blue)"></div></div>
     </div>
     <div class="kpi">
       <div class="label">Win Rate</div>
       <div class="value neutral" id="kpi-winrate">-</div>
-      <div class="sub" id="kpi-winrate-sub">filled trades</div>
+      <div class="sub" id="kpi-winrate-sub">resolved trades</div>
     </div>
     <div class="kpi">
       <div class="label">Open Positions</div>
@@ -384,14 +398,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <div class="progress-wrap"><div class="progress-bar" id="positions-bar" style="width:0%;background:var(--purple)"></div></div>
     </div>
     <div class="kpi">
-      <div class="label">Trades Today</div>
+      <div class="label">Total Trades</div>
       <div class="value neutral" id="kpi-trades">-</div>
-      <div class="sub" id="kpi-trades-sub">placed</div>
+      <div class="sub" id="kpi-trades-sub">all time</div>
     </div>
     <div class="kpi">
-      <div class="label">Spent Today</div>
+      <div class="label">Active Investment</div>
       <div class="value neutral" id="kpi-spent">-</div>
-      <div class="sub">USDC</div>
+      <div class="sub">USDC deployed</div>
     </div>
   </div>
 
@@ -441,25 +455,40 @@ function formatLocalTime(utc) {
 
 async function loadStats() {
   const d = await fetch('/api/stats').then(r => r.json());
-  const pnl = d.realized_pnl;
+
+  // Total P&L (all-time)
+  const pnl = d.total_pnl;
   document.getElementById('kpi-pnl').textContent = fmt$(pnl);
   document.getElementById('kpi-pnl').className = 'value ' + colorClass(pnl);
+  document.getElementById('kpi-pnl-sub').textContent = d.won_trades + 'W / ' + (d.resolved_trades - d.won_trades) + 'L resolved';
+
+  // Budget
   const remaining = d.budget_remaining;
   document.getElementById('kpi-budget').textContent = '$' + remaining.toFixed(2);
-  document.getElementById('kpi-budget').className = 'value ' + (remaining < 2 ? 'neg' : remaining < 5 ? 'neutral' : 'pos');
+  document.getElementById('kpi-budget').className = 'value ' + (remaining < 1 ? 'neg' : remaining < 3 ? 'neutral' : 'pos');
   document.getElementById('kpi-budget-total').textContent = d.daily_budget.toFixed(2);
   document.getElementById('budget-bar').style.width = Math.max(0, 100 * remaining / d.daily_budget) + '%';
+
+  // Win rate (all-time, resolved only)
   const wr = d.win_rate;
-  document.getElementById('kpi-winrate').textContent = wr.toFixed(1) + '%';
+  document.getElementById('kpi-winrate').textContent = d.resolved_trades > 0 ? wr.toFixed(1) + '%' : '-';
   document.getElementById('kpi-winrate').className = 'value ' + (wr >= 55 ? 'pos' : wr >= 45 ? 'neutral' : 'neg');
-  document.getElementById('kpi-winrate-sub').textContent = d.filled_trades + ' filled trades';
+  document.getElementById('kpi-winrate-sub').textContent = d.resolved_trades + ' resolved';
+
+  // Open positions (pending + filled = not yet resolved)
   const op = d.open_positions;
   const maxPos = d.max_positions || 5;
   document.getElementById('kpi-open').textContent = op + '/' + maxPos;
   document.getElementById('positions-bar').style.width = (100 * op / maxPos) + '%';
+
+  // Total trades
   document.getElementById('kpi-trades').textContent = d.total_trades;
-  document.getElementById('kpi-trades-sub').textContent = d.filled_trades + ' filled';
-  document.getElementById('kpi-spent').textContent = '$' + d.spent.toFixed(2);
+  document.getElementById('kpi-trades-sub').textContent = d.resolved_trades + ' resolved';
+
+  // Active investment
+  document.getElementById('kpi-spent').textContent = '$' + (d.active_investment || 0).toFixed(2);
+
+  // Mode badge
   const badge = document.getElementById('mode-badge');
   if (d.is_live) {
     badge.textContent = 'LIVE';

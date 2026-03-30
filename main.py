@@ -33,6 +33,8 @@ from edge_calculator import EdgeCalculator
 from risk_manager import RiskManager, MAX_OPEN_POSITIONS
 from executor import Executor, ORDER_CHECK_INTERVAL
 
+RESOLUTION_CHECK_INTERVAL = 900  # 15 minutes
+
 # ------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------
@@ -347,6 +349,94 @@ async def order_followup_loop(executor: Executor, risk_mgr: RiskManager):
 
 
 # ------------------------------------------------------------------
+# Market resolution checker
+# ------------------------------------------------------------------
+async def check_resolved_positions(risk_mgr: RiskManager, session: aiohttp.ClientSession):
+    """Check all filled trades against Gamma API — update pnl when market resolves."""
+    import db_adapter, json as _json
+    conn = db_adapter.connect()
+    c = conn.cursor()
+    c.execute(db_adapter.adapt(
+        "SELECT id, order_id, condition_id, direction, position_size, limit_price, fill_price "
+        "FROM trades WHERE status='filled'"
+    ))
+    rows = db_adapter.fetchrows(c)
+    conn.close()
+
+    if not rows:
+        return
+
+    logger.info(f"Resolution check: {len(rows)} filled position(s) to check")
+
+    for row in rows:
+        condition_id = row.get("condition_id", "")
+        if not condition_id:
+            continue
+        try:
+            url = f"https://gamma-api.polymarket.com/markets?condition_ids={condition_id}"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    continue
+                data = await resp.json()
+                if not data:
+                    continue
+                market = data[0] if isinstance(data, list) else data
+
+                if not (market.get("closed") or market.get("resolved")):
+                    continue
+
+                outcome_prices_raw = market.get("outcomePrices", "")
+                if isinstance(outcome_prices_raw, str):
+                    outcome_prices = _json.loads(outcome_prices_raw) if outcome_prices_raw else []
+                else:
+                    outcome_prices = outcome_prices_raw or []
+
+                if len(outcome_prices) < 2:
+                    continue
+
+                yes_won = float(outcome_prices[0]) >= 0.99
+                direction = row.get("direction", "YES")
+                position_size = float(row.get("position_size") or 0)
+                price = float(row.get("fill_price") or row.get("limit_price") or 0.5)
+                if price <= 0:
+                    price = 0.5
+
+                shares = position_size / price
+                if (direction == "YES" and yes_won) or (direction == "NO" and not yes_won):
+                    pnl = round(shares - position_size, 4)
+                    new_status = "won"
+                else:
+                    pnl = round(-position_size, 4)
+                    new_status = "lost"
+
+                order_id = row.get("order_id", "")
+                logger.info(
+                    f"Resolved: {market.get('question','')[:55]} | "
+                    f"{'YES' if yes_won else 'NO'} won | our {direction} → {new_status} | pnl=${pnl:+.2f}"
+                )
+                risk_mgr.update_trade_status(order_id, new_status, price, pnl)
+                send_telegram(
+                    f"Market resolved: {market.get('question','')[:60]}\n"
+                    f"Result: {'YES' if yes_won else 'NO'} won\n"
+                    f"Our {direction} position: {'WON' if new_status == 'won' else 'LOST'}\n"
+                    f"P&L: {pnl:+.2f} USDC"
+                )
+
+        except Exception as e:
+            logger.debug(f"Resolution check error for {condition_id}: {e}")
+
+
+async def resolution_check_loop(risk_mgr: RiskManager, session: aiohttp.ClientSession):
+    """Runs every 15 minutes to detect resolved markets and book P&L."""
+    while True:
+        await asyncio.sleep(RESOLUTION_CHECK_INTERVAL)
+        try:
+            await check_resolved_positions(risk_mgr, session)
+        except Exception as e:
+            logger.error(f"Resolution check loop error: {e}")
+
+
+# ------------------------------------------------------------------
 # Midnight reset
 # ------------------------------------------------------------------
 async def midnight_reset_loop(risk_mgr: RiskManager):
@@ -448,6 +538,12 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
 
         fair_engine = FairValueEngine(session=session, anthropic_api_key=anthropic_key)
 
+        # Check for resolved positions immediately on startup
+        try:
+            await check_resolved_positions(risk_mgr, session)
+        except Exception as e:
+            logger.debug(f"Startup resolution check: {e}")
+
         if once:
             await run_scan_cycle(scanner, fair_engine, edge_calc, risk_mgr, executor, paper)
             return
@@ -457,6 +553,7 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
             asyncio.create_task(order_followup_loop(executor, risk_mgr)),
             asyncio.create_task(midnight_reset_loop(risk_mgr)),
             asyncio.create_task(hourly_status_loop(risk_mgr)),
+            asyncio.create_task(resolution_check_loop(risk_mgr, session)),
         ]
 
         # Main scan loop
