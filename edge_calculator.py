@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 MIN_EDGE = 0.08          # 8% minimum edge to trade
 KELLY_FRACTION = 0.25    # fractional Kelly (25% of full Kelly)
-MAX_POSITION_USD = 1.0   # hard cap per trade
+MAX_POSITION_USD = 2.0   # hard cap per trade ($2 for high-edge bets, $1 default)
 
 
 @dataclass
@@ -119,13 +119,20 @@ class EdgeCalculator:
 
         fractional_kelly = full_kelly * KELLY_FRACTION
 
-        # Position size in USD
+        # Position size in USD — allow up to $2 for high-edge bets (>=25%)
+        position_cap = MAX_POSITION_USD if abs(edge) >= 0.25 else 1.0
         raw_size = fractional_kelly * self.bankroll
-        position_size = round(min(raw_size, daily_budget_remaining, MAX_POSITION_USD), 2)
+        position_size = round(min(raw_size, daily_budget_remaining, position_cap), 2)
 
-        if position_size < 0.50:  # minimum trade size
-            logger.debug(f"Position size ${position_size:.2f} too small, skipping")
-            return None
+        # Polymarket CLOB minimum order size is $1.00
+        # If Kelly suggests $0.50-$0.99 and budget allows, round up to $1.00
+        POLYMARKET_MIN = 1.00
+        if position_size < POLYMARKET_MIN:
+            if position_size >= 0.50 and daily_budget_remaining >= POLYMARKET_MIN:
+                position_size = POLYMARKET_MIN
+            else:
+                logger.debug(f"Position size ${position_size:.2f} too small, skipping")
+                return None
 
         return TradeOpportunity(
             condition_id=market["condition_id"],

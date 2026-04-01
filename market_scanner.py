@@ -166,7 +166,9 @@ class MarketScanner:
                                          "oil price", "gold price", "commodity", "earnings"]):
             return "economic"
         if any(k in combined for k in ["election", "president", "senate", "congress", "vote",
-                                         "poll", "minister", "parliament", "political"]):
+                                         "poll", "minister", "parliament", "political",
+                                         "war", "ceasefire", "conflict", "military", "invasion",
+                                         "nato", "sanction", "treaty", "diplomat"]):
             return "political"
         return "other"
 

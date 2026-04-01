@@ -196,6 +196,7 @@ class FairValueEngine:
             sport_path = "soccer/usa.1"
 
         if not sport_path:
+            logger.info(f"Sports: no ESPN league identified for '{question[:50]}', using Claude")
             return await self._claude_estimate(market, [])
 
         # Fetch scoreboard / upcoming games
@@ -323,9 +324,21 @@ class FairValueEngine:
 
         # Simple lognormal approximation
         # Based on current price, daily volatility (from 24h range), and time to expiry
-        high_24h = float(ticker.get("highPrice", current_price))
-        low_24h = float(ticker.get("lowPrice", current_price))
-        daily_vol = (high_24h - low_24h) / (current_price * 2) if current_price > 0 else 0.05
+        # Fetch 7-day klines for better volatility estimate
+        import math as _math
+        klines = await self._get(
+            "https://api.binance.com/api/v3/klines",
+            params={"symbol": symbol, "interval": "1d", "limit": 7}
+        )
+        if klines and len(klines) >= 3:
+            closes = [float(k[4]) for k in klines]
+            log_returns = [_math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
+            daily_vol = (sum(r ** 2 for r in log_returns) / len(log_returns)) ** 0.5
+            logger.debug(f"Crypto vol from klines ({len(closes)}d): {daily_vol:.3f}")
+        else:
+            high_24h = float(ticker.get("highPrice", current_price))
+            low_24h = float(ticker.get("lowPrice", current_price))
+            daily_vol = (high_24h - low_24h) / (current_price * 2) if current_price > 0 else 0.05
 
         hours_left = market.get("hours_left", 24)
         days_left = hours_left / 24.0
@@ -358,10 +371,21 @@ class FairValueEngine:
         newsapi_key = os.getenv("NEWSAPI_KEY", "")
         headlines = []
 
+        # Extract meaningful keywords (remove stopwords and short filler words)
+        _STOPWORDS = {
+            "will", "by", "on", "the", "a", "an", "in", "at", "to", "of", "and", "or",
+            "is", "be", "from", "for", "with", "about", "between", "this", "that", "it",
+            "has", "have", "had", "was", "were", "are", "does", "do", "did", "not",
+            "before", "after", "during", "until", "least", "most", "more", "than",
+            "april", "may", "june", "july", "august", "september", "october",
+            "november", "december", "january", "february", "march", "2024", "2025", "2026",
+        }
+        raw_words = question.replace("?", "").replace(",", "").split()
+        keywords = [w for w in raw_words if w.lower() not in _STOPWORDS and len(w) > 2]
+        key_terms = " ".join(keywords[:6])
+
         if newsapi_key:
             # Fetch relevant headlines
-            # Extract key terms from question (first 5 words)
-            key_terms = " ".join(question.split()[:5])
             news_data = await self._get(
                 "https://newsapi.org/v2/everything",
                 params={
@@ -379,7 +403,6 @@ class FairValueEngine:
                 ]
         else:
             # Try GNews (free, no key needed for basic)
-            key_terms = " ".join(question.split()[:4])
             gnews_data = await self._get(
                 "https://gnews.io/api/v4/search",
                 params={
@@ -402,18 +425,23 @@ class FairValueEngine:
             logger.debug("No Anthropic API key — skipping Claude estimate")
             return None
 
-        # Cache check — skip Claude if estimated within last 6 hours
+        # Cache check — skip Claude if estimated within last 6 hours AND price hasn't moved >5%
         import time as _time
         cid = market.get("condition_id", market.get("question", ""))
+        current_price = market.get("yes_price", 0.5)
         cached = self._claude_cache.get(cid)
         if cached:
-            val, ts = cached
-            if _time.time() - ts < self._cache_ttl:
+            val, ts, cached_price = cached
+            price_moved = abs(current_price - cached_price) / max(cached_price, 0.01) > 0.05
+            if price_moved:
+                logger.info(f"Cache invalidated (price moved {abs(current_price - cached_price):.0%}): {market.get('question','')[:50]}")
+                del self._claude_cache[cid]
+            elif _time.time() - ts < self._cache_ttl:
                 return val
-            del self._claude_cache[cid]
+            else:
+                del self._claude_cache[cid]
 
         question = market.get("question", "")
-        current_price = market.get("yes_price", 0.5)
 
         headline_block = ""
         if headlines:
@@ -467,7 +495,7 @@ class FairValueEngine:
                                 return None
                             val = float(data["fair_value_percent"])
                             result = round(max(1, min(99, val)) / 100.0, 3)
-                            self._claude_cache[cid] = (result, _time.time())
+                            self._claude_cache[cid] = (result, _time.time(), current_price)
                             return result
                         except Exception:
                             # Fallback: extract any number from text
@@ -475,7 +503,7 @@ class FairValueEngine:
                             if num_match:
                                 val = float(num_match.group())
                                 result = round(max(1, min(99, val)) / 100.0, 3)
-                                self._claude_cache[cid] = (result, _time.time())
+                                self._claude_cache[cid] = (result, _time.time(), current_price)
                                 return result
                         return None
                 except Exception as e:

@@ -162,7 +162,7 @@ async def run_scan_cycle(
     #
     # Claude is only called for "other/political" markets — cap that to top 100
     # by liquidity to avoid blowing rate limits on 700+ requests.
-    MAX_CLAUDE_MARKETS = 10
+    MAX_CLAUDE_MARKETS = 20
     non_claude_categories = {"crypto", "sports", "weather"}
 
     # Sort: non-Claude first, then fewest hours left (soonest resolution), then by liquidity
@@ -258,6 +258,7 @@ async def run_scan_cycle(
         if not approved:
             logger.info(f"REJECTED: {reason}")
             risk_mgr.log_rejection(opp, reason)
+            log_to_db(f"REJECTED: {opp.direction} '{opp.question[:45]}' | {reason}")
             continue
 
         # Execute
@@ -321,6 +322,14 @@ async def run_scan_cycle(
     logger.info(risk_mgr.status_line())
     log_to_db(summary)
     log_to_db(risk_mgr.status_line())
+
+    # Notify if candidates exist but nothing was placed (risk_manager blocked everything)
+    if trades_attempted == 0 and len(candidates) > 0:
+        send_telegram(
+            f"Scan complete — {len(candidates)} candidates found but 0 trades placed.\n"
+            f"Check dashboard log for rejection reasons.",
+            silent=True,
+        )
 
 
 # ------------------------------------------------------------------

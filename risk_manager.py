@@ -10,10 +10,10 @@ import db_adapter
 logger = logging.getLogger(__name__)
 
 DAILY_BUDGET = 5.0
-MAX_TRADE_SIZE = 1.0
+MAX_TRADE_SIZE = 2.0   # allows $2 for high-edge bets (>=25%)
 MAX_OPEN_POSITIONS = 5
 MIN_HOURS_TO_RESOLUTION = 6
-MAX_HOURS_TO_RESOLUTION = 504  # only trade markets resolving within 21 days
+MAX_HOURS_TO_RESOLUTION = 168  # only trade markets resolving within 7 days
 DATA_DRIVEN_CATEGORIES = {"sports", "crypto", "weather", "political", "economic", "other"}
 STOP_LOSS_THRESHOLD = -8.0
 
@@ -146,6 +146,16 @@ class RiskManager:
         conn.close()
         return (row["n"] if row else 0) > 0
 
+    def get_open_count_for_category(self, category: str) -> int:
+        conn = db_adapter.connect()
+        c = conn.cursor()
+        c.execute(db_adapter.adapt(
+            "SELECT COUNT(*) as n FROM trades WHERE status IN ('pending','filled') AND category=?"),
+            (category,))
+        row = db_adapter.fetchone(c)
+        conn.close()
+        return row["n"] if row else 0
+
     def get_open_categories(self) -> set:
         conn = db_adapter.connect()
         c = conn.cursor()
@@ -185,8 +195,7 @@ class RiskManager:
         if opp.hours_left < MIN_HOURS_TO_RESOLUTION:
             return False, f"Too close to resolution: {opp.hours_left:.1f}h left"
 
-        # Sports and weather can go up to 14 days (games/forecasts)
-        max_hours = MAX_HOURS_TO_RESOLUTION * 2 if opp.category in ("sports", "weather") else MAX_HOURS_TO_RESOLUTION
+        max_hours = MAX_HOURS_TO_RESOLUTION
         if opp.hours_left > max_hours:
             return False, f"Resolves too far: {opp.hours_left:.0f}h > {max_hours}h max"
 
@@ -200,10 +209,14 @@ class RiskManager:
         if self._market_already_open(opp.condition_id):
             return False, f"Already have open position on this market"
 
-        # Enforce 1-per-category only for the 5 primary categories
+        # 1-per-category for primary categories; allow 2nd if edge >= 25%
         PRIMARY_CATEGORIES = {"crypto", "sports", "weather", "political", "economic"}
         if opp.category in PRIMARY_CATEGORIES and opp.category in open_cats:
-            return False, f"Already have open position in {opp.category}"
+            cat_count = self.get_open_count_for_category(opp.category)
+            if cat_count >= 2:
+                return False, f"Already have 2 open positions in {opp.category}"
+            if abs(opp.edge) < 0.25:
+                return False, f"Need >25% edge for 2nd {opp.category} position (edge={opp.edge:.1%})"
         # "other" (and any unlisted category) fills remaining slots, but never same market twice
 
         if opp.position_size > MAX_TRADE_SIZE:
