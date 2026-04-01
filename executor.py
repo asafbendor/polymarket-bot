@@ -262,6 +262,40 @@ class Executor:
             return {"status": "unknown", "fill_price": 0.0}
 
     # ------------------------------------------------------------------
+    # Sell / exit an existing position
+    # ------------------------------------------------------------------
+    async def sell_position(self, token_id: str, shares: float, min_price: float) -> dict:
+        """Place a SELL limit order to exit a position. min_price = break-even price."""
+        if self.paper:
+            logger.info(f"[PAPER] Would sell {shares:.2f} shares @ {min_price:.4f}")
+            return {"status": "paper_sell", "order_id": ""}
+
+        if not self._client:
+            return {"status": "error", "message": "Client not initialized"}
+
+        try:
+            from py_clob_client.clob_types import OrderArgs
+            loop = asyncio.get_event_loop()
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=min_price,
+                size=shares,
+                side="SELL",
+            )
+            resp = await loop.run_in_executor(
+                None,
+                lambda: self._client.create_and_post_order(order_args)
+            )
+            order_id = ""
+            if isinstance(resp, dict):
+                order_id = resp.get("orderID") or resp.get("order_id") or (resp.get("order") or {}).get("id") or ""
+            logger.warning(f"[LIVE] SELL order placed: {shares:.2f} shares @ {min_price:.4f} | ID={order_id}")
+            return {"status": "pending", "order_id": order_id}
+        except Exception as e:
+            logger.error(f"Sell order failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    # ------------------------------------------------------------------
     # Cancel order
     # ------------------------------------------------------------------
     async def cancel_order(self, order_id: str) -> bool:

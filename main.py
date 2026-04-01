@@ -323,13 +323,6 @@ async def run_scan_cycle(
     log_to_db(summary)
     log_to_db(risk_mgr.status_line())
 
-    # Notify if candidates exist but nothing was placed (risk_manager blocked everything)
-    if trades_attempted == 0 and len(candidates) > 0:
-        send_telegram(
-            f"Scan complete — {len(candidates)} candidates found but 0 trades placed.\n"
-            f"Check dashboard log for rejection reasons.",
-            silent=True,
-        )
 
 
 # ------------------------------------------------------------------
@@ -505,6 +498,85 @@ async def resolution_check_loop(risk_mgr: RiskManager, session: aiohttp.ClientSe
 
 
 # ------------------------------------------------------------------
+# Close overdue positions (>7 days to resolution)
+# ------------------------------------------------------------------
+async def close_overdue_positions(executor: Executor, risk_mgr: RiskManager, session: aiohttp.ClientSession):
+    """At startup: find filled positions that resolve >7 days out and sell at break-even."""
+    import db_adapter, json as _json
+    from risk_manager import MAX_HOURS_TO_RESOLUTION
+
+    conn = db_adapter.connect()
+    c = conn.cursor()
+    c.execute(db_adapter.adapt(
+        "SELECT id, order_id, condition_id, direction, position_size, limit_price, fill_price, question, end_date "
+        "FROM trades WHERE status='filled'"
+    ))
+    rows = db_adapter.fetchrows(c)
+    conn.close()
+
+    if not rows:
+        return
+
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        end_date_str = row.get("end_date", "")
+        if not end_date_str:
+            continue
+        try:
+            end_dt = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+            if not end_dt.tzinfo:
+                end_dt = end_dt.replace(tzinfo=timezone.utc)
+            hours_left = (end_dt - now).total_seconds() / 3600
+        except Exception:
+            continue
+
+        if hours_left <= MAX_HOURS_TO_RESOLUTION:
+            continue  # within limit, skip
+
+        question = row.get("question", "")[:60]
+        logger.warning(f"Overdue position ({hours_left:.0f}h left): {question}")
+        log_to_db(f"Attempting to close overdue position ({hours_left:.0f}h): {question}")
+
+        # Get token_id from CLOB
+        condition_id = row.get("condition_id", "")
+        direction = row.get("direction", "YES")
+        try:
+            url = f"https://clob.polymarket.com/markets/{condition_id}"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    logger.warning(f"Could not fetch market data for {condition_id}")
+                    continue
+                data = await resp.json(content_type=None)
+                token_id = None
+                for tok in (data.get("tokens") or []):
+                    if str(tok.get("outcome", "")).upper() == direction:
+                        token_id = str(tok.get("token_id", ""))
+                        break
+                if not token_id:
+                    logger.warning(f"No token_id found for {direction} on {condition_id}")
+                    continue
+        except Exception as e:
+            logger.warning(f"CLOB market fetch failed: {e}")
+            continue
+
+        # Break-even price = what we paid
+        entry_price = float(row.get("fill_price") or row.get("limit_price") or 0)
+        if entry_price <= 0:
+            entry_price = 0.029  # fallback for Russia/Ukraine
+        position_size = float(row.get("position_size") or 0)
+        shares = round(position_size / entry_price, 2)
+
+        result = await executor.sell_position(token_id, shares, entry_price)
+        if result.get("status") == "error":
+            logger.warning(f"Sell failed: {result.get('message')}")
+            send_telegram(f"Could not auto-close overdue position:\n{question}\nReason: {result.get('message')}")
+        else:
+            logger.warning(f"Sell order placed for overdue position: {question}")
+            log_to_db(f"SELL order placed (overdue close): {direction} {shares:.1f} shares @ {entry_price:.4f} | {question}")
+            send_telegram(f"Auto-closing overdue position (>{MAX_HOURS_TO_RESOLUTION}h):\n{question}\nSELL {shares:.1f} shares @ {entry_price:.4f}")
+
+
+# ------------------------------------------------------------------
 # Midnight reset
 # ------------------------------------------------------------------
 async def midnight_reset_loop(risk_mgr: RiskManager):
@@ -611,6 +683,12 @@ async def main(paper: bool = True, once: bool = False, verbose: bool = False):
             await check_resolved_positions(risk_mgr, session)
         except Exception as e:
             logger.debug(f"Startup resolution check: {e}")
+
+        # Close any positions that exceed the 7-day horizon (new rule)
+        try:
+            await close_overdue_positions(executor, risk_mgr, session)
+        except Exception as e:
+            logger.warning(f"Overdue position close error: {e}")
 
         if once:
             await run_scan_cycle(scanner, fair_engine, edge_calc, risk_mgr, executor, paper)
