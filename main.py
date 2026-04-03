@@ -162,7 +162,7 @@ async def run_scan_cycle(
     #
     # Claude is only called for "other/political" markets — cap that to top 100
     # by liquidity to avoid blowing rate limits on 700+ requests.
-    MAX_CLAUDE_MARKETS = 20
+    MAX_CLAUDE_MARKETS = int(os.getenv("MAX_CLAUDE_MARKETS", "8"))
     non_claude_categories = {"crypto", "sports", "weather"}
 
     # Sort: non-Claude first, then fewest hours left (soonest resolution), then by liquidity

@@ -42,7 +42,7 @@ class FairValueEngine:
         # Cache Claude results: condition_id -> (fair_value, timestamp)
         # Valid for 6 hours to avoid repeated expensive API calls
         self._claude_cache: dict = {}
-        self._cache_ttl = 6 * 3600  # 6 hours in seconds
+        self._cache_ttl = 12 * 3600  # 12 hours in seconds
 
     # ------------------------------------------------------------------
     # Entry point
@@ -196,19 +196,19 @@ class FairValueEngine:
             sport_path = "soccer/usa.1"
 
         if not sport_path:
-            logger.info(f"Sports: no ESPN league identified for '{question[:50]}', using Claude")
-            return await self._claude_estimate(market, [])
+            logger.debug(f"Sports: no ESPN league identified for '{question[:50]}', skipping")
+            return None
 
         # Fetch scoreboard / upcoming games
         data = await self._get(
             f"https://site.api.espn.com/apis/site/v2/sports/{sport_path}/scoreboard"
         )
         if not data:
-            return await self._claude_estimate(market, [])
+            return None
 
         events = data.get("events", [])
         if not events:
-            return await self._claude_estimate(market, [])
+            return None
 
         # Find relevant event
         best_event = None
@@ -224,7 +224,7 @@ class FairValueEngine:
                 best_event = event
 
         if not best_event or best_score < 1:
-            return await self._claude_estimate(market, [])
+            return None
 
         # Extract win probability if available
         competitions = best_event.get("competitions", [{}])
@@ -258,7 +258,7 @@ class FairValueEngine:
                 prob = 0.5 + (spread / -35.0)
                 return round(max(0.05, min(0.95, prob)), 3)
 
-        return await self._claude_estimate(market, [])
+        return None
 
     # ------------------------------------------------------------------
     # CRYPTO — Binance REST (WebSocket would be for streaming; REST is fine here)
@@ -283,13 +283,13 @@ class FairValueEngine:
             params={"symbol": symbol}
         )
         if not ticker:
-            return await self._claude_estimate(market, [])
+            return None
 
         current_price = float(ticker.get("lastPrice", 0))
         price_change_pct = float(ticker.get("priceChangePercent", 0))
 
         if current_price <= 0:
-            return await self._claude_estimate(market, [])
+            return None
 
         # Extract price threshold from question
         # e.g. "Bitcoin above $70,000", "BTC > 80k"
@@ -298,7 +298,7 @@ class FairValueEngine:
             market.get("question", "")
         )
         if not price_match:
-            return await self._claude_estimate(market, [])
+            return None
 
         target_raw = float(price_match.group(1).replace(",", ""))
         multiplier_str = price_match.group(2) or ""
@@ -455,8 +455,8 @@ class FairValueEngine:
         )
 
         payload = {
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 300,
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 150,
             "system": _CLAUDE_SYSTEM,
             "messages": [{"role": "user", "content": prompt}],
         }
