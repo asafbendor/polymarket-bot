@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timezone
 import db_adapter
 from flask import Flask, jsonify, render_template_string
+from risk_manager import DAILY_BUDGET, MAX_OPEN_POSITIONS
 
 app = Flask(__name__)
 
@@ -17,8 +18,6 @@ def no_cache(response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return response
-
-DAILY_BUDGET = 5.0
 
 
 def init_db():
@@ -160,7 +159,7 @@ def api_stats():
         "budget_remaining": round(DAILY_BUDGET - (daily_stats["spent"] or 0), 2),
         "daily_budget": DAILY_BUDGET,
         "open_positions": open_pos["n"],
-        "max_positions": 5,
+        "max_positions": MAX_OPEN_POSITIONS,
         "active_investment": round(active_inv_row["total"] or 0, 2),
         "total_trades": total_trades["n"],
         "resolved_trades": resolved_row["n"],
@@ -241,6 +240,32 @@ def api_pnl():
             "daily_pnl": round(r["realized_pnl"] or 0, 2),
             "cumulative_pnl": round(cumulative, 2),
             "spent": round(r["spent"] or 0, 2),
+        })
+    return jsonify(result)
+
+
+@app.route("/api/category-stats")
+def api_category_stats():
+    rows = query("""
+        SELECT category,
+               COUNT(*) as total,
+               SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as won
+        FROM trades
+        WHERE status IN ('won', 'lost')
+        GROUP BY category
+        ORDER BY total DESC
+    """)
+    result = []
+    for r in rows:
+        won = r["won"] or 0
+        total = r["total"] or 0
+        cat = r["category"] or "other"
+        result.append({
+            "category": cat,
+            "total": total,
+            "won": won,
+            "lost": total - won,
+            "win_rate": round(100 * won / total, 1) if total > 0 else 0,
         })
     return jsonify(result)
 
@@ -352,6 +377,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  .filter-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filter-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; transition: all .15s; }
+  .filter-btn:hover { border-color: var(--blue); color: var(--blue); }
+  .filter-btn.active { background: rgba(56,139,253,.15); border-color: var(--blue); color: var(--blue); font-weight: 600; }
+  .cat-bar-wrap { background: var(--border); border-radius: 3px; height: 4px; overflow: hidden; margin-top: 4px; width: 100%; }
+  .cat-bar { height: 100%; border-radius: 3px; }
+
   #trades-cards { display: none; }
   .trade-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
   .trade-card-title { font-size: 13px; font-weight: 600; color: var(--blue); margin-bottom: 8px; line-height: 1.4; }
@@ -400,7 +432,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="kpi">
       <div class="label">Open Positions</div>
       <div class="value neutral" id="kpi-open">-</div>
-      <div class="sub">max 5</div>
+      <div class="sub">max <span id="kpi-max-pos">8</span></div>
       <div class="progress-wrap"><div class="progress-bar" id="positions-bar" style="width:0%;background:var(--purple)"></div></div>
     </div>
     <div class="kpi">
@@ -426,7 +458,30 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <div class="section-title">All Trades</div>
+  <div class="card" style="margin-bottom:16px" id="category-card">
+    <div class="card-header">Win Rate by Category</div>
+    <div class="card-body">
+      <table id="category-table">
+        <thead>
+          <tr><th>Category</th><th>Trades</th><th>Won</th><th>Lost</th><th>Win Rate</th><th style="min-width:120px"></th></tr>
+        </thead>
+        <tbody id="category-body">
+          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px">
+    <div class="section-title" style="margin:0">All Trades</div>
+    <div class="filter-btns">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="open">Open</button>
+      <button class="filter-btn" data-filter="resolved">Resolved</button>
+      <button class="filter-btn" data-filter="won">Won</button>
+      <button class="filter-btn" data-filter="lost">Lost</button>
+    </div>
+  </div>
   <div class="card" style="margin-bottom:32px">
     <div class="card-body">
       <table id="trades-table">
@@ -447,6 +502,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
 <script>
 let pnlChart = null;
+let allTrades = [];
+let currentFilter = 'all';
 
 function fmt$(v) { return (v >= 0 ? '+' : '') + '$' + Math.abs(v).toFixed(2); }
 function fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; }
@@ -458,6 +515,22 @@ function formatLocalTime(utc) {
     return d.toLocaleDateString('he-IL', {month:'2-digit',day:'2-digit'}) + ' ' + d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit',hour12:false});
   } catch(e) { return utc.slice(0,16); }
 }
+
+function filterTrades(rows, filter) {
+  if (filter === 'all') return rows;
+  if (filter === 'open') return rows.filter(r => r.status === 'pending' || r.status === 'filled');
+  if (filter === 'resolved') return rows.filter(r => r.status === 'won' || r.status === 'lost');
+  return rows.filter(r => r.status === filter);
+}
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    renderTrades(filterTrades(allTrades, currentFilter));
+  });
+});
 
 async function loadStats() {
   const d = await fetch('/api/stats?_=' + Date.now()).then(r => r.json());
@@ -483,9 +556,12 @@ async function loadStats() {
 
   // Open positions (pending + filled = not yet resolved)
   const op = d.open_positions;
-  const maxPos = d.max_positions || 5;
+  const maxPos = d.max_positions || 8;
   document.getElementById('kpi-open').textContent = op + '/' + maxPos;
+  document.getElementById('kpi-max-pos').textContent = maxPos;
   document.getElementById('positions-bar').style.width = (100 * op / maxPos) + '%';
+  const posBar = document.getElementById('positions-bar');
+  posBar.style.background = op >= maxPos ? 'var(--red)' : op >= maxPos - 2 ? 'var(--yellow)' : 'var(--purple)';
 
   // Total trades
   document.getElementById('kpi-trades').textContent = d.total_trades;
@@ -530,13 +606,12 @@ async function loadChart() {
   });
 }
 
-async function loadTrades() {
-  const rows = await fetch('/api/trades?_=' + Date.now()).then(r => r.json());
+function renderTrades(rows) {
   const tbody = document.getElementById('trades-body');
   const cards = document.getElementById('trades-cards');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">No trades yet — waiting for next scan...</td></tr>';
-    cards.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No trades yet</div>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">No trades match this filter</td></tr>';
+    cards.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No trades match this filter</div>';
     return;
   }
   // Mobile cards
@@ -587,6 +662,41 @@ async function loadTrades() {
   }).join('');
 }
 
+async function loadTrades() {
+  const rows = await fetch('/api/trades?_=' + Date.now()).then(r => r.json());
+  allTrades = rows;
+  if (!rows.length) {
+    document.getElementById('trades-body').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">No trades yet — waiting for next scan...</td></tr>';
+    document.getElementById('trades-cards').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No trades yet</div>';
+    return;
+  }
+  renderTrades(filterTrades(allTrades, currentFilter));
+}
+
+async function loadCategoryStats() {
+  const rows = await fetch('/api/category-stats?_=' + Date.now()).then(r => r.json());
+  const tbody = document.getElementById('category-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">No resolved trades yet</td></tr>';
+    return;
+  }
+  const maxTotal = Math.max(...rows.map(r => r.total));
+  tbody.innerHTML = rows.map(r => {
+    const wrCls = r.win_rate >= 55 ? 'pos' : r.win_rate >= 45 ? 'neutral' : 'neg';
+    const barColor = r.win_rate >= 55 ? 'var(--green)' : r.win_rate >= 45 ? 'var(--yellow)' : 'var(--red)';
+    const barPct = maxTotal > 0 ? (100 * r.total / maxTotal) : 0;
+    const cap = r.category.charAt(0).toUpperCase() + r.category.slice(1);
+    return `<tr>
+      <td style="font-weight:500">${cap}</td>
+      <td>${r.total}</td>
+      <td class="pos">${r.won}</td>
+      <td class="neg">${r.lost}</td>
+      <td class="${wrCls}" style="font-weight:600">${r.win_rate.toFixed(1)}%</td>
+      <td><div class="cat-bar-wrap"><div class="cat-bar" style="width:${barPct.toFixed(0)}%;background:${barColor}"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
 async function loadLog() {
   const d = await fetch('/api/log?_=' + Date.now()).then(r => r.json());
   const box = document.getElementById('log-box');
@@ -620,7 +730,7 @@ function tick() {
 }
 
 async function loadAll() {
-  await Promise.all([loadStats(), loadChart(), loadTrades(), loadLog()]);
+  await Promise.all([loadStats(), loadChart(), loadTrades(), loadLog(), loadCategoryStats()]);
 }
 
 loadAll();
