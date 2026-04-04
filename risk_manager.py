@@ -10,12 +10,12 @@ import db_adapter
 
 logger = logging.getLogger(__name__)
 
-DAILY_BUDGET            = float(os.getenv("DAILY_BUDGET", "5.0"))
+DAILY_BUDGET            = float(os.getenv("DAILY_BUDGET", "8.0"))
 MAX_TRADE_SIZE          = float(os.getenv("MAX_TRADE_SIZE", "2.0"))
 MAX_OPEN_POSITIONS      = int(os.getenv("MAX_OPEN_POSITIONS", "8"))
 MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "6"))
 MAX_HOURS_TO_RESOLUTION = int(os.getenv("MAX_HOURS_TO_RESOLUTION", "168"))
-STOP_LOSS_THRESHOLD     = float(os.getenv("STOP_LOSS_THRESHOLD", "-8.0"))
+STOP_LOSS_THRESHOLD     = float(os.getenv("STOP_LOSS_THRESHOLD", "-6.0"))
 DATA_DRIVEN_CATEGORIES  = {"sports", "crypto", "weather", "political", "economic", "other"}
 
 
